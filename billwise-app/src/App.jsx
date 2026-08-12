@@ -53,21 +53,6 @@ export default function App() {
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
 
-  // Quick 1-click Demo Login handler from Landing Page
-  const handleQuickDemoLogin = async (accountType) => {
-    let creds = { username: 'admin', password: 'Admin@123' };
-    if (accountType === 'superadmin') {
-      creds = { username: 'superadmin', password: 'SuperAdmin@123' };
-    } else if (accountType === 'accountant') {
-      creds = { username: 'accountant', password: 'Accountant@123' };
-    }
-    try {
-      await login(creds.username, creds.password);
-    } catch (err) {
-      console.warn("Demo login failed, routing to login page:", err);
-      setUnauthView('login');
-    }
-  };
 
   // Synchronize SuperAdmin landing tab
   useEffect(() => {
@@ -134,7 +119,6 @@ export default function App() {
         <LandingPage
           onNavigateToLogin={(viewMode = 'login') => setUnauthView(viewMode === 'merchant_signup' ? 'signup' : 'login')}
           onNavigateToSignup={() => setUnauthView('signup')}
-          onQuickDemoLogin={handleQuickDemoLogin}
         />
       );
     }

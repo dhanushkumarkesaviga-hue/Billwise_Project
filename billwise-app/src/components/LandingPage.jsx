@@ -223,8 +223,7 @@ const FAQS = [
 
 export default function LandingPage({
   onNavigateToLogin,
-  onNavigateToSignup,
-  onQuickDemoLogin
+  onNavigateToSignup
 }) {
   // Simulator states
   const [selectedInvoice, setSelectedInvoice] = useState(DEMO_INVOICES[0]);
@@ -310,7 +309,7 @@ export default function LandingPage({
             <a href="#features" className="hover:text-rose-600 transition">Features</a>
             <a href="#interactive-simulator" className="hover:text-rose-600 transition flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-rose-600 animate-ping" />
-              Live Demo
+              Platform Tour
             </a>
             <a href="#itc-calculator" className="hover:text-rose-600 transition">Tax Calculator</a>
             <a href="#how-it-works" className="hover:text-rose-600 transition">How It Works</a>
@@ -378,31 +377,8 @@ export default function LandingPage({
               className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 font-bold text-sm border border-slate-200/90 shadow-sm transition hover:border-slate-300 flex items-center justify-center gap-2 cursor-pointer"
             >
               <Play className="w-4 h-4 text-rose-600 fill-rose-600" />
-              <span>Try Live OCR Simulator</span>
+              <span>Explore Platform Tour</span>
             </a>
-          </div>
-
-          {/* Quick Demo Accounts Banner */}
-          <div className="pt-3 flex flex-wrap items-center justify-center gap-2 text-xs text-slate-500">
-            <span className="font-semibold text-slate-700">⚡ Test Drive Demo Accounts (1-Click):</span>
-            <button
-              onClick={() => onQuickDemoLogin('admin')}
-              className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold border border-rose-200 text-[11px] transition cursor-pointer"
-            >
-              🏢 Shri Ram Admin
-            </button>
-            <button
-              onClick={() => onQuickDemoLogin('superadmin')}
-              className="px-2.5 py-1 rounded-lg bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold border border-purple-200 text-[11px] transition cursor-pointer"
-            >
-              🛡️ SuperAdmin
-            </button>
-            <button
-              onClick={() => onQuickDemoLogin('accountant')}
-              className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold border border-blue-200 text-[11px] transition cursor-pointer"
-            >
-              📊 Staff Accountant
-            </button>
           </div>
 
           {/* Trust Metrics Bar */}
@@ -504,7 +480,7 @@ export default function LandingPage({
               
               {/* Sample Invoice Switcher Chips */}
               <div className="flex flex-wrap items-center justify-center gap-2.5">
-                <span className="text-xs font-bold text-slate-500 mr-1">Choose Sample Bill:</span>
+                <span className="text-xs font-bold text-slate-500 mr-1">Select Case Study Example:</span>
                 {DEMO_INVOICES.map((inv) => (
                   <button
                     key={inv.id}
@@ -1426,7 +1402,7 @@ export default function LandingPage({
 
             <div className="flex flex-wrap gap-6 text-xs font-semibold">
               <a href="#features" className="hover:text-white transition">Features</a>
-              <a href="#interactive-simulator" className="hover:text-white transition">Live OCR Demo</a>
+              <a href="#interactive-simulator" className="hover:text-white transition">Platform Tour</a>
               <a href="#itc-calculator" className="hover:text-white transition">Tax Calculator</a>
               <a href="#how-it-works" className="hover:text-white transition">How It Works</a>
               <a href="#faq" className="hover:text-white transition">FAQ</a>

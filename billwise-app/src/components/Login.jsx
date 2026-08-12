@@ -68,21 +68,6 @@ function decodeJwtResponse(token) {
   }
 }
 
-const DEMO_ACCOUNTS = [
-  { username: 'superadmin', password: 'SuperAdmin@123', label: 'Super Admin', role: 'SUPER_ADMIN', desc: 'Compliance & Verification Queue' },
-  { username: 'admin', password: 'Admin@123', label: 'Merchant Admin', role: 'ADMIN (Verified)', desc: 'Shri Ram Enterprise' },
-  { username: 'accountant', password: 'Accountant@123', label: 'Accountant (Verified)', role: 'ACCOUNTANT', desc: 'Shri Ram Enterprise' },
-  { username: 'apex_admin', password: 'Apex@123', label: 'Pending Merchant', role: 'ADMIN (Pending)', desc: 'Apex Logistics' },
-  { username: 'quickmart_admin', password: 'QuickMart@123', label: 'Rejected Merchant', role: 'ADMIN (Rejected)', desc: 'QuickMart Superstores' },
-];
-
-const GOOGLE_DEMO_ACCOUNTS = [
-  { email: 'dhanushkumarkesaviga@gmail.com', name: 'Dhanush Kumar (Merchant Admin)', role: 'ADMIN', avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80', desc: 'Primary Merchant Admin (Verified)' },
-  { email: 'freefiregodtamil@gmail.com', name: 'BillWise Admin (freefiregodtamil)', role: 'ADMIN', avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80', desc: 'Merchant Admin' },
-  { email: 'admin@billwise.in', name: 'Shri Ram Admin', role: 'ADMIN', avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80', desc: 'Shri Ram Enterprise Admin (Verified)' },
-  { email: 'apex.admin@gmail.com', name: 'Vikram Malhotra', role: 'ADMIN', avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80', desc: 'Apex Logistics Admin' }
-];
-
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const hasValidGoogleClientId = Boolean(GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.includes('exampleappssoid'));
 
@@ -393,10 +378,6 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
     }
   };
 
-  const handleQuickFill = (acc) => {
-    setUsername(acc.username);
-    setPassword(acc.password);
-  };
 
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -467,44 +448,11 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
                 </div>
               </div>
 
-              {/* 1-Click Quick Select Accounts */}
-              <div className="space-y-2">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                  Or 1-Click Select Verified Admin Account:
-                </div>
-                <div className="space-y-2">
-                  {GOOGLE_DEMO_ACCOUNTS.map((acc, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      disabled={isGoogleLoading}
-                      onClick={() => handleGoogleAuth(acc)}
-                      className="w-full p-3.5 rounded-2xl border border-slate-200 hover:border-rose-400 hover:bg-rose-50/40 text-left transition flex items-center gap-3 group shadow-2xs cursor-pointer"
-                    >
-                      <img src={acc.avatar} alt={acc.name} className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-bold text-slate-900 group-hover:text-rose-700 truncate flex items-center gap-1.5">
-                          <span>{acc.name}</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                            {acc.role}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate font-mono">{acc.email}</div>
-                      </div>
-                      <div className="flex items-center gap-1 text-[11px] font-bold text-rose-600 opacity-0 group-hover:opacity-100 transition shrink-0">
-                        <span>Sign In</span>
-                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition" />
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Sign In / Register with Any Custom / New Gmail */}
-              <div className="pt-4 border-t border-slate-100 space-y-3">
+              {/* Enter Official Business Gmail */}
+              <div className="pt-2 space-y-3">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
-                  <span>Or Enter Any Gmail Address:</span>
-                  <span className="text-[10px] text-rose-600 font-bold lowercase">Auto-Detects New Merchant</span>
+                  <span>Or Enter Your Business Gmail:</span>
+                  <span className="text-[10px] text-rose-600 font-bold">Secure Google Authentication</span>
                 </div>
                 <form onSubmit={handleCustomGoogleSubmit} className="space-y-2.5">
                   <div className="relative">
@@ -778,30 +726,17 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
                 </button>
               </form>
 
-              {/* Quick Demo Test Accounts Box */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between text-[10px] uppercase font-bold text-slate-500 tracking-wider">
-                  <span>Quick Fill Demo Test Accounts:</span>
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-1.5">
-                  {DEMO_ACCOUNTS.map((acc, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => handleQuickFill(acc)}
-                      className="p-2 rounded-xl bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-300 text-left transition shadow-2xs group"
-                    >
-                      <div className="text-[11px] font-bold text-slate-800 group-hover:text-rose-700 truncate">
-                        {acc.label}
-                      </div>
-                      <div className="text-[9px] text-slate-400 font-mono truncate">
-                        {acc.username}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+              <div className="pt-2 text-center border-t border-slate-100 space-y-2">
+                <p className="text-xs text-slate-500">
+                  New to BillWise?{' '}
+                  <button
+                    type="button"
+                    onClick={() => setView('merchant_signup')}
+                    className="font-bold text-rose-600 hover:text-rose-700 hover:underline cursor-pointer"
+                  >
+                    Register Your Business
+                  </button>
+                </p>
               </div>
             </div>
           )}

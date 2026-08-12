@@ -30,7 +30,6 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { createWorker } from 'tesseract.js';
-import { SAMPLE_SCAN_TEMPLATES } from '../data/mockInvoices';
 import { invoiceApi } from '../api';
 import { 
   determinePageSequence, 
@@ -673,89 +672,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
     setExtractedData(updated);
   };
 
-  const handleSelectTemplate = (template) => {
-    if (template.isMultiPageDemo && template.pagesOutSeq) {
-      // Load the 2 demo pages pre-seeded in reversed order
-      const sequenceResult = determinePageSequence(template.pagesOutSeq);
-      setOrderingReview(sequenceResult);
-      setUploadedFiles(template.pagesOutSeq);
-      return;
-    }
 
-    if (template.rawOcrText) {
-      // Real OCR text test case (e.g. ICICI Lombard Invoice)
-      setIsScanning(true);
-      setScanStep(0);
-      setTotalPages(1);
-      setCurrentPage(1);
-
-      const fakePage = [{
-        id: 'tmpl-real',
-        name: `${template.vendorName}.pdf`,
-        previewUrl: "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800&auto=format&fit=crop&q=60",
-        ocrText: template.rawOcrText
-      }];
-
-      let stepCounter = 0;
-      const interval = setInterval(() => {
-        stepCounter++;
-        if (stepCounter < scanStepsList.length) {
-          setScanStep(stepCounter);
-        } else {
-          clearInterval(interval);
-          processExtractionFromPages(fakePage);
-        }
-      }, 350);
-      return;
-    }
-
-    // Standard demo template
-    setIsScanning(true);
-    setScanStep(0);
-    setTotalPages(1);
-    setCurrentPage(1);
-
-    const gst = Math.round((template.taxableAmount * template.gstRate) / 100);
-    const data = {
-      id: `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-      vendorName: template.vendorName,
-      gstin: template.gstin,
-      invoiceNumber: template.invoiceNumber,
-      invoiceDate: new Date().toISOString().split('T')[0],
-      dueDate: new Date(Date.now() + 15 * 86400000).toISOString().split('T')[0],
-      category: template.category,
-      hsnSac: template.hsnSac,
-      taxableAmount: template.taxableAmount,
-      gstRate: template.gstRate,
-      cgst: Math.round(gst / 2),
-      sgst: Math.round(gst / 2),
-      igst: 0,
-      totalAmount: template.taxableAmount + gst,
-      isArithmeticValid: true,
-      itcEligibility: template.itcEligibility,
-      itcAmount: gst,
-      rcmApplicable: false,
-      status: "Approved",
-      paymentStatus: "Unpaid",
-      ocrConfidence: 99.2,
-      notes: template.notes,
-      pageCount: 1,
-      files: [{ id: 'mock-1', name: `${template.vendorName}.pdf`, previewUrl: "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800&auto=format&fit=crop&q=60" }],
-      rawFileUrl: "https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800&auto=format&fit=crop&q=60"
-    };
-
-    let stepCounter = 0;
-    const interval = setInterval(() => {
-      stepCounter++;
-      if (stepCounter < scanStepsList.length) {
-        setScanStep(stepCounter);
-      } else {
-        clearInterval(interval);
-        setIsScanning(false);
-        setExtractedData(data);
-      }
-    }, 450);
-  };
 
   const handleSaveInvoice = async () => {
     if (!extractedData) return;
@@ -1257,58 +1174,6 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
             )}
 
           </div>
-
-          {/* Quick Demo Samples */}
-          <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-rose-600" />
-                Or test with sample verified invoices:
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {SAMPLE_SCAN_TEMPLATES.map((tmpl, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSelectTemplate(tmpl)}
-                  className={`p-3.5 rounded-xl border text-left transition group flex flex-col justify-between ${
-                    tmpl.title.includes("ICICI")
-                      ? 'bg-rose-50/80 border-rose-400 hover:border-rose-600 hover:bg-rose-100/70 shadow-2xs'
-                      : tmpl.isMultiPageDemo 
-                        ? 'bg-rose-50/50 border-rose-300 hover:border-rose-500 hover:bg-rose-50' 
-                        : 'bg-slate-50 border-slate-200 hover:border-rose-400 hover:bg-rose-50/50'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-rose-700 group-hover:text-rose-800 flex items-center gap-1.5">
-                        {tmpl.title}
-                        {tmpl.title.includes("ICICI") && (
-                          <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-600 text-white">
-                            Verified Real Test
-                          </span>
-                        )}
-                        {tmpl.isMultiPageDemo && (
-                          <span className="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-rose-200 text-rose-800">
-                            2-Page Auto-Order
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="text-[11px] font-semibold text-slate-800 mt-1">
-                      {tmpl.vendorName}
-                    </div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-between text-[11px] font-mono text-slate-500 pt-2 border-t border-slate-200">
-                    <span>₹{tmpl.taxableAmount.toLocaleString('en-IN')}</span>
-                    <span className="text-emerald-700 font-bold">{tmpl.gstRate}% GST</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
         </div>
       )}
 

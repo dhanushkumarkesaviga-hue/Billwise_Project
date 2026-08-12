@@ -23,7 +23,7 @@ import {
   Check,
   RefreshCw
 } from 'lucide-react';
-import { validateGstin, DUMMY_VALID_GSTINS, extractPanFromGstin } from '../utils/gstValidation';
+import { validateGstin, extractPanFromGstin } from '../utils/gstValidation';
 import { merchantApi, authApi } from '../api';
 
 const BUSINESS_TYPES = [
@@ -55,7 +55,6 @@ export default function MerchantSignup({
   const [isEmailVerified, setIsEmailVerified] = useState(Boolean(isGoogleSignup && initialEmail));
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpMessage, setOtpMessage] = useState(null);
-  const [devOtp, setDevOtp] = useState(null);
   const [copiedOtp, setCopiedOtp] = useState(false);
   const [otpCountdown, setOtpCountdown] = useState(0);
 
@@ -103,16 +102,6 @@ export default function MerchantSignup({
     }));
   };
 
-  const handleApplyDummyGstin = (dummy) => {
-    setFormData(prev => ({
-      ...prev,
-      gstin: dummy.gstin,
-      state: dummy.state,
-      legalName: prev.legalName || `${dummy.name} Pvt Ltd`,
-      tradeName: prev.tradeName || dummy.name
-    }));
-  };
-
   // Document file to base64 conversion
   const handleFileUpload = (e, fieldName, nameField) => {
     const file = e.target.files?.[0];
@@ -127,14 +116,6 @@ export default function MerchantSignup({
       }));
     };
     reader.readAsDataURL(file);
-  };
-
-  const handleSampleDocFill = (fieldName, nameField, fallbackUrl, label) => {
-    setFormData(prev => ({
-      ...prev,
-      [fieldName]: fallbackUrl,
-      [nameField]: label
-    }));
   };
 
   const handleNextStep1 = (e) => {
@@ -171,7 +152,6 @@ export default function MerchantSignup({
     try {
       const res = await authApi.sendSignupOtp(cleanEmail);
       setIsOtpSent(true);
-      setDevOtp(res.devOtp);
       setOtpMessage(res.message || "OTP code sent to email.");
       setOtpCountdown(60);
     } catch (err) {
@@ -509,24 +489,6 @@ export default function MerchantSignup({
                   )}
                 </div>
 
-                {/* Quick Demo GSTINs */}
-                <div className="pt-2 border-t border-rose-100/60">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1.5">
-                    Test with Sample Valid GSTINs:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {DUMMY_VALID_GSTINS.map((d, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => handleApplyDummyGstin(d)}
-                        className="px-2.5 py-1 rounded-lg bg-white hover:bg-rose-50 border border-rose-200 text-slate-700 hover:text-rose-700 font-mono text-[10px] transition shadow-2xs font-semibold"
-                      >
-                        {d.gstin} ({d.state})
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -749,7 +711,6 @@ export default function MerchantSignup({
                         onClick={() => {
                           setIsOtpSent(false);
                           setEmailOtp('');
-                          setDevOtp(null);
                           setOtpMessage(null);
                         }}
                         className="text-rose-700 hover:text-rose-900 font-bold underline transition"
@@ -780,28 +741,6 @@ export default function MerchantSignup({
                         Verify OTP
                       </button>
                     </div>
-
-                    {/* Dev OTP auto-fill badge for easy local testing */}
-                    {devOtp && (
-                      <div className="flex items-center justify-between p-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-[11px]">
-                        <span className="flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-amber-600" />
-                          <span>Dev Code: <strong className="font-mono font-bold tracking-wider">{devOtp}</strong></span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEmailOtp(devOtp);
-                            setCopiedOtp(true);
-                            setTimeout(() => setCopiedOtp(false), 2000);
-                          }}
-                          className="px-2 py-0.5 rounded bg-amber-200 hover:bg-amber-300 text-amber-900 text-[10px] font-bold transition flex items-center gap-1"
-                        >
-                          {copiedOtp ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                          {copiedOtp ? 'Filled' : 'Auto-fill'}
-                        </button>
-                      </div>
-                    )}
 
                     {otpMessage && (
                       <p className="text-[11px] text-rose-700 font-medium">{otpMessage}</p>
@@ -906,13 +845,6 @@ export default function MerchantSignup({
                   <label className="text-[11px] font-bold uppercase tracking-wide text-slate-700">
                     1. GST Registration Certificate (Form GST REG-06) *
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => handleSampleDocFill('gstCertificateUrl', 'gstCertFileName', 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?w=800&auto=format&fit=crop&q=60', 'Sample_GST_REG06.pdf')}
-                    className="text-[10px] text-rose-600 hover:text-rose-700 font-bold underline"
-                  >
-                    Use Sample Document
-                  </button>
                 </div>
 
                 <div className="border-2 border-dashed border-rose-200 hover:border-rose-400 bg-rose-50/20 rounded-2xl p-4 text-center cursor-pointer transition relative">
@@ -943,13 +875,6 @@ export default function MerchantSignup({
                   <label className="text-[11px] font-bold uppercase tracking-wide text-slate-700">
                     2. Shop & Establishment / Trade License (Optional)
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => handleSampleDocFill('shopLicenseUrl', 'shopLicenseFileName', 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=800&auto=format&fit=crop&q=60', 'Sample_Shop_License.pdf')}
-                    className="text-[10px] text-rose-600 hover:text-rose-700 font-bold underline"
-                  >
-                    Use Sample
-                  </button>
                 </div>
 
                 <div className="border-2 border-dashed border-slate-200 hover:border-slate-300 bg-slate-50/50 rounded-2xl p-3 text-center cursor-pointer transition relative">
@@ -979,13 +904,6 @@ export default function MerchantSignup({
                   <label className="text-[11px] font-bold uppercase tracking-wide text-slate-700">
                     3. Storefront / Office Photo (Optional)
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => handleSampleDocFill('storefrontPhotoUrl', 'storefrontFileName', 'https://images.unsplash.com/photo-1541888946425-d0fbb180c5f5?w=800&auto=format&fit=crop&q=60', 'Storefront_Photo.jpg')}
-                    className="text-[10px] text-rose-600 hover:text-rose-700 font-bold underline"
-                  >
-                    Use Sample Photo
-                  </button>
                 </div>
 
                 <div className="border-2 border-dashed border-slate-200 hover:border-slate-300 bg-slate-50/50 rounded-2xl p-3 text-center cursor-pointer transition relative">

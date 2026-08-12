@@ -41,13 +41,6 @@ export const STATE_CODES = {
   "38": "Ladakh"
 };
 
-export const DUMMY_VALID_GSTINS = [
-  { gstin: "27AAAAA0000A1Z5", state: "Maharashtra", name: "Apex Logistics & Supply Chain" },
-  { gstin: "07BBBBB1111B2Z8", state: "Delhi", name: "Zenith Cloud Technologies" },
-  { gstin: "29CCCCC2222C3Z1", state: "Karnataka", name: "QuickMart Retail Superstores" },
-  { gstin: "27AAACA1234F1Z5", state: "Maharashtra", name: "Shri Ram Enterprise" },
-  { gstin: "27AAACE1234F1Z6", state: "Maharashtra", name: "Omkar Engineering Works" }
-];
 
 /**
  * Calculates the Mod-36 checksum character for the first 14 characters of a GSTIN.
