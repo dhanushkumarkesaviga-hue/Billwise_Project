@@ -87,9 +87,18 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 const hasValidGoogleClientId = Boolean(GOOGLE_CLIENT_ID && !GOOGLE_CLIENT_ID.includes('exampleappssoid'));
 
 
-export default function Login() {
-  const { login, register, googleLogin, loginWithToken, isAuthLoading, authError } = useAuth();
-  const [view, setView] = useState('login'); // 'login' | 'accountant_register' | 'merchant_signup' | 'forgot_password'
+export default function Login({ onBackToLanding, initialView = 'login' }) {
+  const { 
+    login, 
+    register, 
+    googleLogin, 
+    loginWithToken, 
+    isAuthLoading, 
+    authError, 
+    sessionExpiredMessage, 
+    clearSessionExpiredMessage 
+  } = useAuth();
+  const [view, setView] = useState(initialView); // 'login' | 'accountant_register' | 'merchant_signup' | 'forgot_password'
   const [showPassword, setShowPassword] = useState(false);
 
   // Login form state
@@ -176,7 +185,7 @@ export default function Login() {
       });
       setShowGoogleModal(false);
 
-      if (res && res.isNewUser) {
+      if (res && (res.isNewUser || !res.token)) {
         // Merchant Verification Guardrail: Route new Google accounts to KYC verification signup
         setGoogleSignupData({
           email: res.email || googleAccount.email,
@@ -186,7 +195,15 @@ export default function Login() {
         setView('merchant_signup');
       }
     } catch (err) {
-      setLocalError(err.message || 'Google authentication failed');
+      console.warn("Google Auth notice:", err);
+      // If user is new / not yet registered, immediately open Merchant Signup
+      setShowGoogleModal(false);
+      setGoogleSignupData({
+        email: googleAccount.email,
+        name: googleAccount.name || googleAccount.email.split('@')[0],
+        isGoogle: true
+      });
+      setView('merchant_signup');
     } finally {
       setIsGoogleLoading(false);
     }
@@ -231,12 +248,10 @@ export default function Login() {
           setGsiLoaded(true);
 
           if (googleBtnRef.current) {
-            googleBtnRef.current.innerHTML = '';
             window.google.accounts.id.renderButton(googleBtnRef.current, {
               theme: 'outline',
               size: 'large',
               type: 'standard',
-              shape: 'rectangular',
               text: 'signin_with',
               logo_alignment: 'left',
               width: 340
@@ -265,15 +280,11 @@ export default function Login() {
 
   const triggerGoogleSignIn = () => {
     setLocalError(null);
-    if (window.google?.accounts?.id) {
-      window.google.accounts.id.prompt((notification) => {
-        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-          window.location.href = 'http://localhost:8082/oauth2/authorization/google';
-        }
-      });
-    } else {
-      setIsGoogleLoading(true);
-      window.location.href = 'http://localhost:8082/oauth2/authorization/google';
+    setShowGoogleModal(true);
+    if (window.google?.accounts?.id && hasValidGoogleClientId) {
+      try {
+        window.google.accounts.id.prompt();
+      } catch (e) {}
     }
   };
 
@@ -401,6 +412,7 @@ export default function Login() {
           setView('login');
           setGoogleSignupData({ email: '', name: '', isGoogle: false });
         }}
+        onBackToLanding={onBackToLanding}
         initialEmail={googleSignupData.email}
         initialName={googleSignupData.name}
         isGoogleSignup={googleSignupData.isGoogle}
@@ -488,10 +500,53 @@ export default function Login() {
                 </div>
               </div>
 
+              {/* Sign In / Register with Any Custom / New Gmail */}
+              <div className="pt-4 border-t border-slate-100 space-y-3">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
+                  <span>Or Enter Any Gmail Address:</span>
+                  <span className="text-[10px] text-rose-600 font-bold lowercase">Auto-Detects New Merchant</span>
+                </div>
+                <form onSubmit={handleCustomGoogleSubmit} className="space-y-2.5">
+                  <div className="relative">
+                    <Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                    <input
+                      type="email"
+                      required
+                      placeholder="e.g. newmerchant@gmail.com"
+                      value={customGoogleEmail}
+                      onChange={(e) => setCustomGoogleEmail(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none font-medium"
+                    />
+                  </div>
+                  <div className="relative">
+                    <User className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Full Name / Proprietor Name"
+                      value={customGoogleName}
+                      onChange={(e) => setCustomGoogleName(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none font-medium"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isGoogleLoading}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition cursor-pointer disabled:opacity-60"
+                  >
+                    <GoogleIcon className="w-4 h-4" />
+                    <span>Continue with Gmail</span>
+                    <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                  </button>
+                  <p className="text-[10px] text-slate-500 text-center leading-normal">
+                    ✨ If this Gmail is new, you will instantly be taken to the <strong>New Merchant Creation Page</strong> with verified email and zero OTP delay.
+                  </p>
+                </form>
+              </div>
+
               {isGoogleLoading && (
                 <div className="p-3 rounded-xl bg-slate-900 text-white text-xs font-medium flex items-center justify-center gap-2 animate-pulse">
                   <GoogleIcon className="w-4 h-4 animate-spin" />
-                  <span>Authenticating with Google & issuing Admin token…</span>
+                  <span>Authenticating with Google & routing to account…</span>
                 </div>
               )}
             </div>
@@ -501,6 +556,19 @@ export default function Login() {
 
 
       <div className="w-full max-w-md space-y-6">
+
+        {onBackToLanding && (
+          <div className="flex justify-start">
+            <button
+              type="button"
+              onClick={onBackToLanding}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-rose-600 hover:border-rose-300 font-bold text-xs shadow-2xs transition cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Home</span>
+            </button>
+          </div>
+        )}
 
         {/* Brand Header */}
         <div className="flex flex-col items-center gap-2">
@@ -547,6 +615,30 @@ export default function Login() {
                 <UserPlus className="w-3.5 h-3.5" />
                 Register Accountant
               </button>
+            </div>
+          )}
+
+          {/* SESSION EXPIRED BANNER */}
+          {sessionExpiredMessage && (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50 text-amber-950 text-xs p-3.5 flex items-start gap-3 shadow-2xs animate-in fade-in slide-in-from-top-2">
+              <div className="p-1.5 rounded-xl bg-amber-100 text-amber-700 shrink-0 mt-0.5">
+                <Lock className="w-4 h-4" />
+              </div>
+              <div className="flex-1 space-y-0.5">
+                <div className="font-extrabold text-amber-950 flex items-center justify-between">
+                  <span>Session Expired</span>
+                  <button 
+                    type="button" 
+                    onClick={clearSessionExpiredMessage}
+                    className="text-[10px] text-amber-700 hover:text-amber-950 font-bold underline cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  {sessionExpiredMessage}
+                </p>
+              </div>
             </div>
           )}
 
@@ -648,9 +740,31 @@ export default function Login() {
                 </div>
 
                 {(authError || localError) && (
-                  <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs px-3 py-2.5 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                    <span>{authError || localError}</span>
+                  <div className="space-y-2">
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs px-3 py-2.5 flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                      <span>{authError || localError}</span>
+                    </div>
+                    {username.includes('@') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGoogleSignupData({
+                            email: username.trim(),
+                            name: username.split('@')[0],
+                            isGoogle: username.includes('gmail')
+                          });
+                          setView('merchant_signup');
+                        }}
+                        className="w-full text-left p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200 text-amber-900 text-xs font-bold flex items-center justify-between transition cursor-pointer shadow-2xs"
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          <Building2 className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                          <span>New account? Create New Merchant with <strong>{username}</strong></span>
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5 text-amber-700 shrink-0 ml-1" />
+                      </button>
+                    )}
                   </div>
                 )}
 

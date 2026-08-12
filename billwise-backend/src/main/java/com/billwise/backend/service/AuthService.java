@@ -83,8 +83,7 @@ public class AuthService {
                 user.getMerchantId(),
                 merchantStatus,
                 merchantTradeName,
-                jwtUtil.getExpirationMs()
-        );
+                jwtUtil.getExpirationMs());
     }
 
     private Role parseRole(String requestedRole) {

@@ -41,43 +41,62 @@ public class GeminiCopilotService {
     }
 
     public String chat(String sessionId, String userMessage) {
-        if (geminiApiKey == null || geminiApiKey.isBlank()) {
-            throw new IllegalStateException(
-                    "GEMINI_API_KEY is not configured. Set it as an environment variable before starting the app.");
-        }
+        boolean hasApiKey = geminiApiKey != null && !geminiApiKey.isBlank() && !geminiApiKey.contains("YOUR_GEMINI_API_KEY");
 
         // 1. Persist the user's message
         saveMessage(sessionId, "user", userMessage);
 
-        // 2. Build financial context from the current invoice data (never let
-        //    the model invent figures — the real numbers come from the DB).
-        String financialContext = buildFinancialContext();
-
-        // 3. Replay the full conversation history (stateless API, so history
-        //    must be resent every call).
-        List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
-
-        Map<String, Object> requestBody = buildGeminiRequest(financialContext, history);
-
-        String url = String.format(GEMINI_URL_TEMPLATE, geminiModel, geminiApiKey);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-
         String reply;
-        try {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = restTemplate.postForObject(url, entity, Map.class);
-            reply = extractReplyText(response);
-        } catch (Exception ex) {
-            log.error("Gemini API call failed", ex);
-            reply = "Sorry, I couldn't reach the AI service right now. Please try again in a moment.";
+        if (!hasApiKey) {
+            log.info("GEMINI_API_KEY not configured. Responding with built-in rule-based ledger copilot.");
+            reply = heuristicReply(userMessage);
+        } else {
+            // 2. Build financial context from the current invoice data
+            String financialContext = buildFinancialContext();
+
+            // 3. Replay conversation history
+            List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+            Map<String, Object> requestBody = buildGeminiRequest(financialContext, history);
+
+            String url = String.format(GEMINI_URL_TEMPLATE, geminiModel, geminiApiKey);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> response = restTemplate.postForObject(url, entity, Map.class);
+                reply = extractReplyText(response);
+            } catch (Exception ex) {
+                log.warn("Gemini API call failed: {}. Falling back to rule-based ledger assistant.", ex.getMessage());
+                reply = heuristicReply(userMessage);
+            }
         }
 
         // 4. Persist the assistant's reply so it's included next time.
         saveMessage(sessionId, "model", reply);
 
         return reply;
+    }
+
+    private String heuristicReply(String userMessage) {
+        String lower = (userMessage != null) ? userMessage.toLowerCase() : "";
+        List<Invoice> invoices = invoiceService.getAllInvoices();
+        BigDecimal totalSpend = invoices.stream().map(Invoice::getTotalAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal eligibleItc = invoices.stream().filter(i -> i.getItcEligibility() != null && i.getItcEligibility().contains("Eligible")).map(Invoice::getItcAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal blockedItc = invoices.stream().filter(i -> i.getItcEligibility() != null && i.getItcEligibility().contains("Ineligible")).map(i -> nz(i.getCgst()).add(nz(i.getSgst())).add(nz(i.getIgst()))).reduce(BigDecimal.ZERO, BigDecimal::add);
+        long flaggedCount = invoices.stream().filter(i -> "Flagged".equalsIgnoreCase(i.getStatus())).count();
+
+        if (lower.contains("itc") || lower.contains("credit") || lower.contains("input tax")) {
+            return String.format("Based on your invoice ledger, your total eligible ITC is Rs. %s, while Rs. %s is blocked under Section 17(5). Ensure supplier GSTR-1 filings match to claim full ITC in GSTR-3B.", eligibleItc, blockedItc);
+        }
+        if (lower.contains("flag") || lower.contains("risk") || lower.contains("mismatch")) {
+            return String.format("You currently have %d flagged invoice(s). Please review supplier GSTINs and tax rate discrepancies in the Invoices tab before reconciliation.", flaggedCount);
+        }
+        if (lower.contains("deadline") || lower.contains("due") || lower.contains("file")) {
+            return "Upcoming GST filing deadlines: GSTR-1 is due by the 11th of the month, and GSTR-3B by the 20th. File on time to avoid interest and late fees.";
+        }
+        return String.format("BillWise Copilot: Currently tracking %d invoice(s) with total spend of Rs. %s and eligible ITC of Rs. %s. Ask me about tax compliance, blocked credits, or GST deadlines!", invoices.size(), totalSpend, eligibleItc);
     }
 
     public void clearHistory(String sessionId) {

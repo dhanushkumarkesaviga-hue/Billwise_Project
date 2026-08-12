@@ -2,10 +2,13 @@ package com.billwise.invoice.controller;
 
 import com.billwise.invoice.dto.InvoiceDtos.ClassifyRequest;
 import com.billwise.invoice.dto.InvoiceDtos.ClassifyResponse;
+import com.billwise.invoice.dto.InvoiceDtos.VlmExtractionRequest;
+import com.billwise.invoice.dto.InvoiceDtos.VlmExtractionResponse;
 import com.billwise.invoice.entity.Invoice;
 import com.billwise.invoice.security.AuthenticatedUser;
 import com.billwise.invoice.service.InvoiceClassificationService;
 import com.billwise.invoice.service.InvoiceService;
+import com.billwise.invoice.service.OllamaVisionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -25,6 +28,7 @@ public class InvoiceController {
     private final InvoiceService invoiceService;
     private final InvoiceClassificationService classificationService;
     private final com.billwise.invoice.service.InvoiceDeletionRequestService deletionRequestService;
+    private final OllamaVisionService ollamaVisionService;
 
     @GetMapping
     public List<Invoice> getAllInvoices(@AuthenticationPrincipal AuthenticatedUser user) {
@@ -123,5 +127,12 @@ public class InvoiceController {
     @PostMapping("/classify")
     public ClassifyResponse classify(@Valid @RequestBody ClassifyRequest request) {
         return classificationService.classify(request.getOcrText(), request.getVendorNameHint());
+    }
+
+    @PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT', 'SUPER_ADMIN')")
+    @PostMapping("/extract-vlm")
+    public ResponseEntity<VlmExtractionResponse> extractVlm(@Valid @RequestBody VlmExtractionRequest request) {
+        VlmExtractionResponse response = ollamaVisionService.extractInvoice(request);
+        return ResponseEntity.ok(response);
     }
 }

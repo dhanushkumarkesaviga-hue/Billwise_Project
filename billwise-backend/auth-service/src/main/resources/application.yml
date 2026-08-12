@@ -8,7 +8,7 @@ spring:
     mongodb:
       uri: mongodb://localhost:27017/billwise
   mail:
-    host: ${SPRING_MAIL_HOST:}
+    host: ${SPRING_MAIL_HOST:smtp.gmail.com}
     port: ${SPRING_MAIL_PORT:587}
     username: ${SPRING_MAIL_USERNAME:}
     password: ${SPRING_MAIL_PASSWORD:}
@@ -28,8 +28,8 @@ spring:
       client:
         registration:
           google:
-            client-id: ${GOOGLE_CLIENT_ID:}
-            client-secret: ${GOOGLE_CLIENT_SECRET:}
+            client-id: ${GOOGLE_CLIENT_ID:your-google-client-id.apps.googleusercontent.com}
+            client-secret: ${GOOGLE_CLIENT_SECRET:your-google-client-secret}
             scope:
               - email
               - profile
@@ -45,7 +45,7 @@ eureka:
 
 billwise:
   jwt:
-    secret: 
+    secret: billwise-super-secret-jwt-signing-key-for-gst-saas-2026-production-grade
     expiration-ms: 86400000
   oauth2:
     frontend-redirect-uri: ${OAUTH2_FRONTEND_REDIRECT_URI:http://localhost:3000}

@@ -1,6 +1,8 @@
+import { isJwtExpired } from './utils/tokenUtils';
+
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8081/api';
 
-const STORAGE_KEY = 'billwise_auth';
+const STORAGE_KEY = 'billwise_session_auth';
 let memoryToken = null;
 
 export function setApiToken(token) {
@@ -8,12 +10,22 @@ export function setApiToken(token) {
 }
 
 export function getToken() {
-  if (memoryToken) return memoryToken;
+  if (memoryToken && !isJwtExpired(memoryToken)) return memoryToken;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    // Check sessionStorage (active browser tab session)
+    const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    return parsed?.token || null;
+    if (parsed?.token && !isJwtExpired(parsed.token)) {
+      memoryToken = parsed.token;
+      return parsed.token;
+    }
+    // Token expired or invalid: purge
+    sessionStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem('billwise_auth');
+    localStorage.removeItem(STORAGE_KEY);
+    memoryToken = null;
+    return null;
   } catch {
     return null;
   }
@@ -25,11 +37,13 @@ export function authHeaders() {
 }
 
 async function handleResponse(res, isLoginRequest = false) {
-  if (res.status === 401 && !isLoginRequest) {
+  if ((res.status === 401 || res.status === 403) && !isLoginRequest) {
     // Token is invalid/expired
     memoryToken = null;
+    sessionStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem('billwise_auth');
     localStorage.removeItem(STORAGE_KEY);
-    window.dispatchEvent(new Event('billwise:unauthorized'));
+    window.dispatchEvent(new CustomEvent('billwise:unauthorized', { detail: { reason: 'session_expired' } }));
   }
 
   if (!res.ok) {
@@ -56,7 +70,8 @@ export const authApi = {
     const data = await handleResponse(res, true);
     if (data?.token) {
       setApiToken(data.token);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.removeItem('billwise_auth');
     }
     return data;
   },
@@ -77,7 +92,8 @@ export const authApi = {
     const data = await handleResponse(res, true);
     if (data?.token) {
       setApiToken(data.token);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.removeItem('billwise_auth');
     }
     return data;
   },
@@ -91,7 +107,8 @@ export const authApi = {
     const data = await handleResponse(res, true);
     if (data?.token) {
       setApiToken(data.token);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      localStorage.removeItem('billwise_auth');
     }
     return data;
   },
@@ -402,6 +419,13 @@ export const invoiceApi = {
     fetch(`${API_BASE}/invoices/deduplicate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    }).then(r => handleResponse(r, false)),
+
+  extractVlm: (payload) =>
+    fetch(`${API_BASE}/invoices/extract-vlm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
     }).then(r => handleResponse(r, false)),
 };
 

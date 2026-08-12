@@ -40,7 +40,6 @@ public class AuthController {
                 "username", authentication.getName(),
                 "role", authentication.getAuthorities().stream().findFirst()
                         .map(a -> a.getAuthority().replace("ROLE_", ""))
-                        .orElse("VIEWER")
-        );
+                        .orElse("VIEWER"));
     }
 }

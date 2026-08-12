@@ -37,6 +37,7 @@ const BUSINESS_TYPES = [
 
 export default function MerchantSignup({ 
   onSwitchToLogin,
+  onBackToLanding,
   initialEmail = '',
   initialName = '',
   isGoogleSignup = false
@@ -341,6 +342,28 @@ export default function MerchantSignup({
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 py-8">
       <div className="max-w-2xl w-full space-y-6">
+
+        {/* Top Navigation */}
+        <div className="flex items-center justify-between">
+          {onBackToLanding ? (
+            <button
+              type="button"
+              onClick={onBackToLanding}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 text-slate-600 hover:text-rose-600 hover:border-rose-300 font-bold text-xs shadow-2xs transition cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Home</span>
+            </button>
+          ) : <div />}
+
+          <button
+            type="button"
+            onClick={onSwitchToLogin}
+            className="text-xs font-bold text-slate-600 hover:text-rose-600 transition cursor-pointer"
+          >
+            Already registered? <span className="text-rose-600 underline">Sign In</span>
+          </button>
+        </div>
 
         {/* Brand Header */}
         <div className="text-center space-y-1">

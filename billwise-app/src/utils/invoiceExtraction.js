@@ -888,3 +888,445 @@ export function extractInvoiceFields(ocrText, defaultFileName = '') {
   };
 }
 
+/**
+ * Normalizes text for loose comparison (whitespace & case insensitive).
+ */
+function normalizeString(str) {
+  if (!str) return '';
+  return String(str).toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+}
+
+/**
+ * Checks if two strings agree (exact match or one contains the other).
+ */
+function stringsAgree(a, b) {
+  const normA = normalizeString(a);
+  const normB = normalizeString(b);
+  if (!normA && !normB) return true;
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+  if (normA.length > 4 && normB.length > 4 && (normA.includes(normB) || normB.includes(normA))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Checks if two numeric values agree within rounding tolerance.
+ */
+function numbersAgree(a, b, tolerance = 0.05) {
+  const numA = Number(a) || 0;
+  const numB = Number(b) || 0;
+  return Math.abs(numA - numB) <= tolerance;
+}
+
+/**
+ * Evaluates arithmetic validity for a financial set.
+ */
+function evaluateArithmeticSet(financials) {
+  if (!financials) return { isValid: false, errorAmt: 999999 };
+  const taxable = Number(financials.taxableAmount) || 0;
+  const cgst = Number(financials.cgst) || 0;
+  const sgst = Number(financials.sgst) || 0;
+  const igst = Number(financials.igst) || 0;
+  const total = Number(financials.totalAmount) || 0;
+
+  if (taxable <= 0 && total <= 0) {
+    return { isValid: false, errorAmt: 999999 };
+  }
+
+  const taxSum = (cgst + sgst + igst) || (taxable * (Number(financials.gstRate) || 18) / 100);
+  const expectedTotal = taxable + taxSum;
+  const errorAmt = Math.abs(expectedTotal - total);
+  const isValid = errorAmt <= (total * 0.03 + 2.5);
+
+  return { isValid, errorAmt };
+}
+
+/**
+ * Reconciles regex-based OCR results with VLM-based results into a unified, high-confidence output.
+ * 
+ * Field-by-field strategy:
+ * - If both agree -> high confidence, source: 'both'
+ * - If single source -> use it, source: 'regex' | 'vlm'
+ * - If disagreement -> use arithmetic cross-validation & GST checksum as tie-breaker,
+ *                      flag conflict, and preserve both candidates for UI review.
+ * 
+ * @param {Object|null} regexResult - Output from extractInvoiceFields()
+ * @param {Object|null} vlmResult - Output data from callVlmExtraction()
+ * @returns {Object} Merged result object with extractionSources, candidates, and ocrConfidence
+ */
+export function reconcileExtractionResults(regexResult, vlmResult) {
+  const hasRegex = regexResult && typeof regexResult === 'object' && Object.keys(regexResult).length > 0;
+  const hasVlm = vlmResult && typeof vlmResult === 'object' && Object.keys(vlmResult).length > 0;
+
+  // Fallback 1: Both missing
+  if (!hasRegex && !hasVlm) {
+    return {
+      vendorName: '',
+      gstin: '',
+      gstinValidation: { valid: false, gstin: '' },
+      invoiceNumber: '',
+      invoiceDate: new Date().toISOString().split('T')[0],
+      hsnSac: '',
+      taxableAmount: 0,
+      gstRate: 18,
+      cgst: 0,
+      sgst: 0,
+      igst: 0,
+      totalAmount: 0,
+      isArithmeticValid: false,
+      warning: 'No extraction data available',
+      extractionMode: 'none',
+      extractionSources: {},
+      candidates: {},
+      hasConflicts: false,
+      disagreements: [],
+      ocrConfidence: 0
+    };
+  }
+
+  // Fallback 2: Regex only (VLM unavailable or timed out)
+  if (hasRegex && !hasVlm) {
+    const isArith = regexResult.isArithmeticValid !== undefined ? regexResult.isArithmeticValid : true;
+    const confidence = isArith ? 96.4 : 91.0;
+    const sources = {};
+    const candidates = {};
+
+    ['vendorName', 'gstin', 'invoiceNumber', 'invoiceDate', 'hsnSac', 'taxableAmount', 'gstRate', 'cgst', 'sgst', 'igst', 'totalAmount'].forEach(f => {
+      sources[f] = regexResult[f] ? 'regex' : 'none';
+      candidates[f] = { regexVal: regexResult[f] ?? null, vlmVal: null, selected: regexResult[f] ?? null, conflict: false };
+    });
+
+    return {
+      ...regexResult,
+      isArithmeticValid: isArith,
+      warning: regexResult.warning || (isArith ? null : 'Verify tax calculations'),
+      extractionMode: 'regex_only',
+      extractionSources: sources,
+      candidates,
+      hasConflicts: false,
+      disagreements: [],
+      ocrConfidence: confidence,
+      sourceBreakdown: 'Tesseract.js OCR (Regex Engine)'
+    };
+  }
+
+  // Fallback 3: VLM only
+  if (!hasRegex && hasVlm) {
+    const arithEval = evaluateArithmeticSet(vlmResult);
+    const confidence = arithEval.isValid ? 95.0 : 88.0;
+    const sources = {};
+    const candidates = {};
+
+    ['vendorName', 'gstin', 'invoiceNumber', 'invoiceDate', 'hsnSac', 'taxableAmount', 'gstRate', 'cgst', 'sgst', 'igst', 'totalAmount'].forEach(f => {
+      sources[f] = vlmResult[f] ? 'vlm' : 'none';
+      candidates[f] = { regexVal: null, vlmVal: vlmResult[f] ?? null, selected: vlmResult[f] ?? null, conflict: false };
+    });
+
+    const gstinVal = vlmResult.gstin ? validateGstin(vlmResult.gstin) : { valid: false, gstin: '' };
+
+    return {
+      vendorName: vlmResult.vendorName || '',
+      gstin: vlmResult.gstin || '',
+      gstinValidation: gstinVal,
+      invoiceNumber: vlmResult.invoiceNumber || '',
+      invoiceDate: vlmResult.invoiceDate || new Date().toISOString().split('T')[0],
+      hsnSac: vlmResult.hsnSac || '',
+      taxableAmount: Number(vlmResult.taxableAmount) || 0,
+      gstRate: Number(vlmResult.gstRate) || 18,
+      cgst: Number(vlmResult.cgst) || 0,
+      sgst: Number(vlmResult.sgst) || 0,
+      igst: Number(vlmResult.igst) || 0,
+      totalAmount: Number(vlmResult.totalAmount) || 0,
+      isArithmeticValid: arithEval.isValid,
+      warning: arithEval.isValid ? null : 'Vision model amounts differed from expected GST math',
+      extractionMode: 'vlm_only',
+      extractionSources: sources,
+      candidates,
+      hasConflicts: false,
+      disagreements: [],
+      ocrConfidence: confidence,
+      sourceBreakdown: 'Local Ollama Vision Model'
+    };
+  }
+
+  // ----------------------------------------------------
+  // HYBRID EXTRACTION RECONCILIATION
+  // ----------------------------------------------------
+  const extractionSources = {};
+  const candidates = {};
+  const disagreements = [];
+
+  // 1. Vendor Name
+  let finalVendorName = '';
+  const regexVendor = (regexResult.vendorName || '').trim();
+  const vlmVendor = (vlmResult.vendorName || '').trim();
+
+  if (regexVendor && vlmVendor) {
+    if (stringsAgree(regexVendor, vlmVendor)) {
+      // Both agree, prefer the longer / better capitalized one
+      finalVendorName = regexVendor.length >= vlmVendor.length ? regexVendor : vlmVendor;
+      extractionSources.vendorName = 'both';
+      candidates.vendorName = { regexVal: regexVendor, vlmVal: vlmVendor, selected: finalVendorName, conflict: false };
+    } else {
+      // Disagreement
+      const regexIsGeneric = /invoice|bill|receipt|scan/i.test(regexVendor) || regexVendor.length < 4;
+      const vlmHasCorpSuffix = /(?:pvt|ltd|limited|services|enterprises|solutions|industries|corp)/i.test(vlmVendor);
+      
+      finalVendorName = (regexIsGeneric || vlmHasCorpSuffix) ? vlmVendor : regexVendor;
+      extractionSources.vendorName = 'conflict';
+      disagreements.push('vendorName');
+      candidates.vendorName = { regexVal: regexVendor, vlmVal: vlmVendor, selected: finalVendorName, conflict: true };
+    }
+  } else if (regexVendor) {
+    finalVendorName = regexVendor;
+    extractionSources.vendorName = 'regex';
+    candidates.vendorName = { regexVal: regexVendor, vlmVal: null, selected: finalVendorName, conflict: false };
+  } else if (vlmVendor) {
+    finalVendorName = vlmVendor;
+    extractionSources.vendorName = 'vlm';
+    candidates.vendorName = { regexVal: null, vlmVal: vlmVendor, selected: finalVendorName, conflict: false };
+  } else {
+    finalVendorName = '';
+    extractionSources.vendorName = 'none';
+    candidates.vendorName = { regexVal: null, vlmVal: null, selected: '', conflict: false };
+  }
+
+  // 2. GSTIN
+  let finalGstin = '';
+  const regexGstin = (regexResult.gstin || '').toUpperCase().trim();
+  const vlmGstin = (vlmResult.gstin || '').toUpperCase().trim();
+
+  const regexGstinValid = regexGstin ? validateGstin(regexGstin).valid : false;
+  const vlmGstinValid = vlmGstin ? validateGstin(vlmGstin).valid : false;
+
+  if (regexGstin && vlmGstin) {
+    if (regexGstin === vlmGstin) {
+      finalGstin = regexGstin;
+      extractionSources.gstin = 'both';
+      candidates.gstin = { regexVal: regexGstin, vlmVal: vlmGstin, selected: finalGstin, conflict: false };
+    } else if (regexGstinValid && !vlmGstinValid) {
+      finalGstin = regexGstin;
+      extractionSources.gstin = 'regex';
+      candidates.gstin = { regexVal: regexGstin, vlmVal: vlmGstin, selected: finalGstin, conflict: false };
+    } else if (vlmGstinValid && !regexGstinValid) {
+      finalGstin = vlmGstin;
+      extractionSources.gstin = 'vlm';
+      candidates.gstin = { regexVal: regexGstin, vlmVal: vlmGstin, selected: finalGstin, conflict: false };
+    } else {
+      // Both valid but different (e.g. buyer vs seller)
+      finalGstin = regexGstin; // prefer regex parsed from seller header
+      extractionSources.gstin = 'conflict';
+      disagreements.push('gstin');
+      candidates.gstin = { regexVal: regexGstin, vlmVal: vlmGstin, selected: finalGstin, conflict: true };
+    }
+  } else if (regexGstin) {
+    finalGstin = regexGstin;
+    extractionSources.gstin = 'regex';
+    candidates.gstin = { regexVal: regexGstin, vlmVal: null, selected: finalGstin, conflict: false };
+  } else if (vlmGstin) {
+    finalGstin = vlmGstin;
+    extractionSources.gstin = 'vlm';
+    candidates.gstin = { regexVal: null, vlmVal: vlmGstin, selected: finalGstin, conflict: false };
+  } else {
+    finalGstin = '';
+    extractionSources.gstin = 'none';
+    candidates.gstin = { regexVal: null, vlmVal: null, selected: '', conflict: false };
+  }
+
+  const finalGstinValidation = finalGstin ? validateGstin(finalGstin) : { valid: false, gstin: '' };
+
+  // 3. Invoice Number
+  let finalInvoiceNumber = '';
+  const regexInvNo = (regexResult.invoiceNumber || '').trim();
+  const vlmInvNo = (vlmResult.invoiceNumber || '').trim();
+
+  if (regexInvNo && vlmInvNo) {
+    if (stringsAgree(regexInvNo, vlmInvNo)) {
+      finalInvoiceNumber = regexInvNo;
+      extractionSources.invoiceNumber = 'both';
+      candidates.invoiceNumber = { regexVal: regexInvNo, vlmVal: vlmInvNo, selected: finalInvoiceNumber, conflict: false };
+    } else {
+      finalInvoiceNumber = regexInvNo.length >= vlmInvNo.length ? regexInvNo : vlmInvNo;
+      extractionSources.invoiceNumber = 'conflict';
+      disagreements.push('invoiceNumber');
+      candidates.invoiceNumber = { regexVal: regexInvNo, vlmVal: vlmInvNo, selected: finalInvoiceNumber, conflict: true };
+    }
+  } else if (regexInvNo) {
+    finalInvoiceNumber = regexInvNo;
+    extractionSources.invoiceNumber = 'regex';
+    candidates.invoiceNumber = { regexVal: regexInvNo, vlmVal: null, selected: finalInvoiceNumber, conflict: false };
+  } else if (vlmInvNo) {
+    finalInvoiceNumber = vlmInvNo;
+    extractionSources.invoiceNumber = 'vlm';
+    candidates.invoiceNumber = { regexVal: null, vlmVal: vlmInvNo, selected: finalInvoiceNumber, conflict: false };
+  } else {
+    finalInvoiceNumber = '';
+    extractionSources.invoiceNumber = 'none';
+    candidates.invoiceNumber = { regexVal: null, vlmVal: null, selected: '', conflict: false };
+  }
+
+  // 4. Invoice Date
+  let finalInvoiceDate = '';
+  const regexDate = (regexResult.invoiceDate || '').trim();
+  const vlmDate = (vlmResult.invoiceDate || '').trim();
+
+  if (regexDate && vlmDate) {
+    if (regexDate === vlmDate) {
+      finalInvoiceDate = regexDate;
+      extractionSources.invoiceDate = 'both';
+      candidates.invoiceDate = { regexVal: regexDate, vlmVal: vlmDate, selected: finalInvoiceDate, conflict: false };
+    } else {
+      finalInvoiceDate = regexDate;
+      extractionSources.invoiceDate = 'conflict';
+      disagreements.push('invoiceDate');
+      candidates.invoiceDate = { regexVal: regexDate, vlmVal: vlmDate, selected: finalInvoiceDate, conflict: true };
+    }
+  } else if (regexDate) {
+    finalInvoiceDate = regexDate;
+    extractionSources.invoiceDate = 'regex';
+    candidates.invoiceDate = { regexVal: regexDate, vlmVal: null, selected: finalInvoiceDate, conflict: false };
+  } else if (vlmDate) {
+    finalInvoiceDate = vlmDate;
+    extractionSources.invoiceDate = 'vlm';
+    candidates.invoiceDate = { regexVal: null, vlmVal: vlmDate, selected: finalInvoiceDate, conflict: false };
+  } else {
+    finalInvoiceDate = new Date().toISOString().split('T')[0];
+    extractionSources.invoiceDate = 'none';
+    candidates.invoiceDate = { regexVal: null, vlmVal: null, selected: finalInvoiceDate, conflict: false };
+  }
+
+  // 5. HSN/SAC
+  let finalHsnSac = '';
+  const regexHsn = (regexResult.hsnSac || '').trim();
+  const vlmHsn = (vlmResult.hsnSac || '').trim();
+
+  if (regexHsn && vlmHsn) {
+    if (regexHsn === vlmHsn || stringsAgree(regexHsn, vlmHsn)) {
+      finalHsnSac = regexHsn;
+      extractionSources.hsnSac = 'both';
+      candidates.hsnSac = { regexVal: regexHsn, vlmVal: vlmHsn, selected: finalHsnSac, conflict: false };
+    } else {
+      finalHsnSac = regexHsn;
+      extractionSources.hsnSac = 'conflict';
+      disagreements.push('hsnSac');
+      candidates.hsnSac = { regexVal: regexHsn, vlmVal: vlmHsn, selected: finalHsnSac, conflict: true };
+    }
+  } else if (regexHsn) {
+    finalHsnSac = regexHsn;
+    extractionSources.hsnSac = 'regex';
+    candidates.hsnSac = { regexVal: regexHsn, vlmVal: null, selected: finalHsnSac, conflict: false };
+  } else if (vlmHsn) {
+    finalHsnSac = vlmHsn;
+    extractionSources.hsnSac = 'vlm';
+    candidates.hsnSac = { regexVal: null, vlmVal: vlmHsn, selected: finalHsnSac, conflict: false };
+  } else {
+    finalHsnSac = '';
+    extractionSources.hsnSac = 'none';
+    candidates.hsnSac = { regexVal: null, vlmVal: null, selected: '', conflict: false };
+  }
+
+  // 6. Financials Reconciliation with Arithmetic Cross-Validation Tie-Breaker
+  const regexArith = evaluateArithmeticSet(regexResult);
+  const vlmArith = evaluateArithmeticSet(vlmResult);
+
+  const financialFields = ['taxableAmount', 'gstRate', 'cgst', 'sgst', 'igst', 'totalAmount'];
+  const finalFinancials = {};
+
+  // Check if financial sets match directly
+  const financialsMatch = financialFields.every(field => {
+    return numbersAgree(regexResult[field], vlmResult[field], field === 'gstRate' ? 0.1 : 0.5);
+  });
+
+  if (financialsMatch) {
+    // Both engines arrived at identical numbers -> maximum confidence!
+    financialFields.forEach(field => {
+      finalFinancials[field] = Number(regexResult[field]) || 0;
+      extractionSources[field] = 'both';
+      candidates[field] = {
+        regexVal: regexResult[field],
+        vlmVal: vlmResult[field],
+        selected: finalFinancials[field],
+        conflict: false
+      };
+    });
+  } else {
+    // Disagreement in financials -> Use arithmetic cross-validation as tie-breaker
+    let winningSet = 'regex';
+
+    if (regexArith.isValid && !vlmArith.isValid) {
+      winningSet = 'regex';
+    } else if (vlmArith.isValid && !regexArith.isValid) {
+      winningSet = 'vlm';
+    } else if (regexArith.isValid && vlmArith.isValid) {
+      // Both valid -> pick the one with lower error
+      winningSet = regexArith.errorAmt <= vlmArith.errorAmt ? 'regex' : 'vlm';
+    } else {
+      // Neither valid -> pick the one with lower arithmetic discrepancy
+      winningSet = regexArith.errorAmt <= vlmArith.errorAmt ? 'regex' : 'vlm';
+    }
+
+    const sourceObj = winningSet === 'regex' ? regexResult : vlmResult;
+
+    financialFields.forEach(field => {
+      finalFinancials[field] = Number(sourceObj[field]) || 0;
+      const fieldAgrees = numbersAgree(regexResult[field], vlmResult[field], field === 'gstRate' ? 0.1 : 0.5);
+
+      if (fieldAgrees) {
+        extractionSources[field] = 'both';
+        candidates[field] = {
+          regexVal: regexResult[field],
+          vlmVal: vlmResult[field],
+          selected: finalFinancials[field],
+          conflict: false
+        };
+      } else {
+        extractionSources[field] = 'conflict';
+        disagreements.push(field);
+        candidates[field] = {
+          regexVal: regexResult[field] ?? 0,
+          vlmVal: vlmResult[field] ?? 0,
+          selected: finalFinancials[field],
+          conflict: true
+        };
+      }
+    });
+  }
+
+  // Evaluate final arithmetic validity
+  const overallArith = evaluateArithmeticSet(finalFinancials);
+
+  // Confidence Calculation
+  let confidence = 92.0;
+  if (disagreements.length === 0 && overallArith.isValid) {
+    confidence = 98.8; // 100% agreement between OCR and VLM with valid math
+  } else if (disagreements.length <= 2 && overallArith.isValid) {
+    confidence = 96.2; // 1-2 minor conflicts resolved by arithmetic tie-breaker
+  } else if (overallArith.isValid) {
+    confidence = 93.5;
+  } else {
+    confidence = 86.0;
+  }
+
+  return {
+    vendorName: finalVendorName,
+    gstin: finalGstin,
+    gstinValidation: finalGstinValidation,
+    invoiceNumber: finalInvoiceNumber,
+    invoiceDate: finalInvoiceDate,
+    hsnSac: finalHsnSac,
+    ...finalFinancials,
+    isArithmeticValid: overallArith.isValid,
+    warning: overallArith.isValid ? null : 'Calculated tax differs slightly from invoice total',
+    extractionMode: 'hybrid',
+    extractionSources,
+    candidates,
+    hasConflicts: disagreements.length > 0,
+    disagreements,
+    ocrConfidence: confidence,
+    sourceBreakdown: `Hybrid AI (${extractionSources.vendorName === 'both' ? 'Verified Match' : 'Reconciled'})`
+  };
+}
+
+

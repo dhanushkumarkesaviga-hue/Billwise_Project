@@ -25,7 +25,9 @@ billwise:
 ollama:
   base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
   model: ${OLLAMA_MODEL:llama3:latest}
-  timeout-seconds: 60
+  vision-model: ${OLLAMA_VISION_MODEL:llama3.2-vision:latest}
+  vision-timeout-seconds: ${OLLAMA_VISION_TIMEOUT:120}
+  timeout-seconds: 120
 
 ml:
   classify:

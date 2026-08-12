@@ -9,6 +9,7 @@ import AiCopilotDrawer from './components/AiCopilotDrawer';
 import OcrUploadScanner from './components/OcrUploadScanner';
 import InvoiceDetailModal from './components/InvoiceDetailModal';
 import Login from './components/Login';
+import LandingPage from './components/LandingPage';
 import SuperAdminVerificationQueue from './components/SuperAdminVerificationQueue';
 import VerificationPendingScreen from './components/VerificationPendingScreen';
 import AccountantPendingApprovalScreen from './components/AccountantPendingApprovalScreen';
@@ -28,8 +29,19 @@ export default function App() {
     username,
     fullName,
     merchantTradeName,
+    login,
     logout,
   } = useAuth();
+
+  // Landing Page vs Login vs Signup for unauthenticated visitors
+  const [unauthView, setUnauthView] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash;
+      if (hash === '#login') return 'login';
+      if (hash === '#signup' || hash === '#register') return 'signup';
+    }
+    return 'landing';
+  });
 
   const [activeTab, setActiveTab] = useState(isSuperAdmin ? 'verification' : 'overview');
   const [invoices, setInvoices] = useState([]);
@@ -40,6 +52,22 @@ export default function App() {
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
+
+  // Quick 1-click Demo Login handler from Landing Page
+  const handleQuickDemoLogin = async (accountType) => {
+    let creds = { username: 'admin', password: 'Admin@123' };
+    if (accountType === 'superadmin') {
+      creds = { username: 'superadmin', password: 'SuperAdmin@123' };
+    } else if (accountType === 'accountant') {
+      creds = { username: 'accountant', password: 'Accountant@123' };
+    }
+    try {
+      await login(creds.username, creds.password);
+    } catch (err) {
+      console.warn("Demo login failed, routing to login page:", err);
+      setUnauthView('login');
+    }
+  };
 
   // Synchronize SuperAdmin landing tab
   useEffect(() => {
@@ -101,7 +129,21 @@ export default function App() {
   };
 
   if (!isAuthenticated) {
-    return <Login />;
+    if (unauthView === 'landing') {
+      return (
+        <LandingPage
+          onNavigateToLogin={(viewMode = 'login') => setUnauthView(viewMode === 'merchant_signup' ? 'signup' : 'login')}
+          onNavigateToSignup={() => setUnauthView('signup')}
+          onQuickDemoLogin={handleQuickDemoLogin}
+        />
+      );
+    }
+    return (
+      <Login
+        onBackToLanding={() => setUnauthView('landing')}
+        initialView={unauthView === 'signup' ? 'merchant_signup' : 'login'}
+      />
+    );
   }
 
   // Gatekeeper 1: Non-SuperAdmin merchants with non-verified status stay in Pending Screen

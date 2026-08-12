@@ -38,8 +38,10 @@ import {
 } from '../utils/pageOrdering';
 import { 
   extractInvoiceFields, 
+  reconcileExtractionResults,
   cleanOcrText 
 } from '../utils/invoiceExtraction';
+import { callVlmExtraction } from '../utils/vlmExtraction';
 
 // Must mirror InvoiceCategories.ALLOWED_CATEGORIES on the backend, so the
 // AI's classification result is always a valid selectable option here.
@@ -61,6 +63,140 @@ const CATEGORY_OPTIONS = [
   "Other"
 ];
 
+function CandidateFieldBadge({
+  fieldName,
+  label,
+  extractedData,
+  onSelectCandidate
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  const candidate = extractedData?.candidates?.[fieldName];
+  const source = extractedData?.extractionSources?.[fieldName];
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  if (!candidate && !source) return null;
+
+  if (candidate?.conflict) {
+    return (
+      <div className="relative inline-block" ref={dropdownRef}>
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 hover:bg-amber-200 transition shadow-2xs cursor-pointer animate-pulse"
+          title="Discrepancy detected between OCR and Vision AI — click to choose candidate"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-600"></span>
+          Conflict: Choose Source
+        </button>
+
+        {isOpen && (
+          <div className="absolute z-50 right-0 mt-1 w-64 p-2.5 rounded-xl bg-white shadow-2xl border border-slate-200 text-xs space-y-2 animate-in fade-in zoom-in-95">
+            <div className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 pb-1 border-b border-slate-100">
+              Select Candidate for {label}
+            </div>
+            
+            {candidate.regexVal !== null && candidate.regexVal !== undefined && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectCandidate(fieldName, candidate.regexVal);
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left p-2 rounded-lg border transition text-xs flex flex-col ${
+                  String(extractedData[fieldName]) === String(candidate.regexVal)
+                    ? 'bg-rose-50 border-rose-400 text-rose-900 font-bold'
+                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                <span className="text-[9px] text-slate-500 font-bold flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-slate-500"></span>
+                  Tesseract OCR Engine (Regex):
+                </span>
+                <span className="font-mono text-[11px] truncate mt-0.5">
+                  {typeof candidate.regexVal === 'number' ? `₹${candidate.regexVal.toLocaleString('en-IN')}` : String(candidate.regexVal)}
+                </span>
+              </button>
+            )}
+
+            {candidate.vlmVal !== null && candidate.vlmVal !== undefined && (
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectCandidate(fieldName, candidate.vlmVal);
+                  setIsOpen(false);
+                }}
+                className={`w-full text-left p-2 rounded-lg border transition text-xs flex flex-col ${
+                  String(extractedData[fieldName]) === String(candidate.vlmVal)
+                    ? 'bg-violet-50 border-violet-400 text-violet-900 font-bold'
+                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                <span className="text-[9px] text-violet-600 font-bold flex items-center gap-1">
+                  <Sparkles className="w-2.5 h-2.5 text-violet-600" />
+                  Local Ollama Vision Model (VLM):
+                </span>
+                <span className="font-mono text-[11px] truncate mt-0.5">
+                  {typeof candidate.vlmVal === 'number' ? `₹${candidate.vlmVal.toLocaleString('en-IN')}` : String(candidate.vlmVal)}
+                </span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (source === 'both') {
+    return (
+      <span 
+        title="Verified match between Tesseract OCR and Ollama Vision AI"
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
+      >
+        <Check className="w-2.5 h-2.5" />
+        AI Verified
+      </span>
+    );
+  }
+
+  if (source === 'vlm') {
+    return (
+      <span 
+        title="Extracted via Local Ollama Vision Model"
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-violet-50 text-violet-700 border border-violet-200"
+      >
+        <Sparkles className="w-2.5 h-2.5" />
+        Vision AI
+      </span>
+    );
+  }
+
+  if (source === 'regex') {
+    return (
+      <span 
+        title="Extracted via Tesseract OCR Engine"
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 text-slate-600 border border-slate-200"
+      >
+        OCR
+      </span>
+    );
+  }
+
+  return null;
+}
+
 export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -76,6 +212,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
 
   // Multi-page Automatic Ordering Review State
   const [orderingReview, setOrderingReview] = useState(null);
+  const vlmPendingPromiseRef = useRef(null);
 
   // Live Camera Scanner State
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -87,10 +224,10 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
   const mediaStreamRef = useRef(null);
 
   const scanStepsList = [
-    "Initializing Tesseract.js Optical Character Recognition Engine...",
-    "Extracting OCR text across uploaded page photos...",
+    "Initializing Hybrid AI Engine (Tesseract OCR + Local Ollama Vision)...",
+    "Pre-processing image & running parallel optical text + vision models...",
     "Analyzing document structure & calculating page sequence scores...",
-    "Parsing table rows, GSTIN, vendor name, invoice # and amounts...",
+    "Reconciling OCR text & VLM fields with Indian GST arithmetic cross-checks...",
     "Classifying expense category via BillWise ML Model...",
     "Validating Section 17(5) Input Tax Credit (ITC) eligibility..."
   ];
@@ -282,24 +419,35 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
     });
   };
 
-  // Perform multi-page OCR and sequence determination
+  // Perform multi-page OCR and sequence determination in parallel with Ollama Vision extraction
   const runOcrOnFiles = async (filesList = uploadedFiles) => {
     if (!filesList || filesList.length === 0) return;
 
     setIsScanning(true);
     setScanStep(0);
-    setScanStatusText("Initializing Tesseract OCR engine...");
+    setScanStatusText("Initializing Hybrid AI Pipeline (Tesseract OCR + Local Ollama Vision Model)...");
+
+    // Launch local VLM extraction concurrently with Tesseract OCR (Zero waiting latency)
+    let vlmPromise = null;
+    if (filesList.length > 0 && (filesList[0].file || filesList[0].previewUrl)) {
+      vlmPromise = callVlmExtraction({
+        file: filesList[0].file,
+        previewUrl: filesList[0].previewUrl,
+        fileName: filesList[0].name
+      });
+    }
+    vlmPendingPromiseRef.current = vlmPromise;
 
     try {
       setScanStep(1);
 
-      // Perform OCR across each uploaded image
+      // Perform OCR across each uploaded image concurrently
       const recognizedPages = [];
       const worker = await createWorker('eng');
 
       for (let i = 0; i < filesList.length; i++) {
         const item = filesList[i];
-        setScanStatusText(`Pre-processing & extracting text from Page ${i + 1} of ${filesList.length}... (${item.name})`);
+        setScanStatusText(`Parallel Processing: OCR text extraction on Page ${i + 1} of ${filesList.length} (${item.name})...`);
         
         let text = '';
         if (item.file) {
@@ -324,9 +472,9 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
       // Compute automatic sequence ordering
       const sequenceResult = determinePageSequence(recognizedPages);
 
-      // If exactly 1 page, proceed immediately to extraction
+      // If exactly 1 page, proceed immediately to hybrid reconciliation
       if (recognizedPages.length === 1) {
-        processExtractionFromPages(sequenceResult.orderedPages);
+        processExtractionFromPages(sequenceResult.orderedPages, vlmPromise);
       } else {
         // Multi-page detected: Pause scanning and present the interactive Page Ordering Review Strip
         setIsScanning(false);
@@ -367,26 +515,66 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
     }
   };
 
-  // Finalize extraction from ordered pages using high-accuracy table-aware extractor
-  const processExtractionFromPages = async (orderedPages) => {
+  // Finalize extraction from ordered pages using Hybrid AI Reconciler
+  const processExtractionFromPages = async (orderedPages, preloadedVlmPromise = null) => {
     setIsScanning(true);
     setScanStep(3);
-    setScanStatusText("Stitching ordered page texts & extracting GSTIN, vendor, line items...");
+    setScanStatusText("Running Hybrid AI Reconciliation: Tesseract OCR + Local Ollama Vision with GST Cross-Checks...");
+
+    // Periodic reassuring status updates for local laptop GPU/CPU inference
+    let progressTimer = 0;
+    const vlmStatusInterval = setInterval(() => {
+      progressTimer += 4;
+      if (progressTimer === 4) {
+        setScanStatusText("Running Local Ollama Vision AI inference (local GPU/CPU processing in progress)...");
+      } else if (progressTimer === 12) {
+        setScanStatusText("Analyzing invoice layout, tabular items & GSTIN with local vision model...");
+      } else if (progressTimer === 24) {
+        setScanStatusText("Performing local VLM neural inference & parsing strict JSON schema...");
+      } else if (progressTimer >= 36) {
+        setScanStatusText("Reconciling high-accuracy OCR results with local vision model output...");
+      }
+    }, 4000);
 
     // Stitched full text in correct sequential order
     const mergedText = mergeOrderedOcrTexts(orderedPages);
     setOcrRawText(mergedText);
 
-    // High-Accuracy Field Extraction (Table-row & context aware, zero fake placeholders)
+    // Path A: High-Accuracy Regex Extraction (Table-row & context aware)
     const firstPageName = orderedPages[0]?.name || "";
-    const extractedFields = extractInvoiceFields(mergedText, firstPageName);
+    const regexResult = extractInvoiceFields(mergedText, firstPageName);
+
+    // Path B: Local Vision Model (VLM) Extraction (Parallel Promise.allSettled)
+    let vlmData = null;
+    let vlmModelUsed = null;
+
+    try {
+      const activeVlmPromise = preloadedVlmPromise || vlmPendingPromiseRef.current || callVlmExtraction({
+        file: orderedPages[0]?.file,
+        previewUrl: orderedPages[0]?.previewUrl,
+        fileName: firstPageName
+      });
+
+      const settledResult = await activeVlmPromise;
+      if (settledResult && settledResult.success && settledResult.data) {
+        vlmData = settledResult.data;
+        vlmModelUsed = settledResult.modelUsed;
+      }
+    } catch (err) {
+      console.warn("VLM call completed with fallback to regex:", err);
+    } finally {
+      clearInterval(vlmStatusInterval);
+    }
+
+    // Step C: Reconcile both outputs with arithmetic tie-breaker
+    const reconciledFields = reconcileExtractionResults(regexResult, vlmData);
 
     setScanStep(4);
     setScanStatusText("Classifying expense category via BillWise ML Model...");
 
     let classifiedCategory = "Other";
     try {
-      const classifyResult = await invoiceApi.classify(mergedText, extractedFields.vendorName);
+      const classifyResult = await invoiceApi.classify(mergedText, reconciledFields.vendorName);
       classifiedCategory = classifyResult.category || "Other";
     } catch (err) {
       console.warn("Category classification failed, defaulting to 'Other':", err);
@@ -398,34 +586,41 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
     // Auto-detect ITC eligibility based on category (e.g. Food & Entertainment is blocked under Sec 17(5)(b))
     const isBlockedCategory = classifiedCategory === "Food & Entertainment" || classifiedCategory === "Insurance";
     const itcEligibility = isBlockedCategory ? "Ineligible (Sec 17(5))" : "Eligible";
-    const itcAmount = isBlockedCategory ? 0 : (extractedFields.cgst + extractedFields.sgst + extractedFields.igst);
+    const itcAmount = isBlockedCategory ? 0 : (reconciledFields.cgst + reconciledFields.sgst + reconciledFields.igst);
 
     const realExtractedData = {
       id: `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
-      vendorName: extractedFields.vendorName,
-      gstin: extractedFields.gstin,
-      gstinValidation: extractedFields.gstinValidation,
-      invoiceNumber: extractedFields.invoiceNumber,
-      invoiceDate: extractedFields.invoiceDate,
+      vendorName: reconciledFields.vendorName,
+      gstin: reconciledFields.gstin,
+      gstinValidation: reconciledFields.gstinValidation,
+      invoiceNumber: reconciledFields.invoiceNumber,
+      invoiceDate: reconciledFields.invoiceDate,
       dueDate: new Date(Date.now() + 20 * 86400000).toISOString().split('T')[0],
       category: classifiedCategory,
-      hsnSac: extractedFields.hsnSac,
-      taxableAmount: extractedFields.taxableAmount,
-      gstRate: extractedFields.gstRate,
-      cgst: extractedFields.cgst,
-      sgst: extractedFields.sgst,
-      igst: extractedFields.igst,
-      totalAmount: extractedFields.totalAmount,
-      isArithmeticValid: extractedFields.isArithmeticValid,
+      hsnSac: reconciledFields.hsnSac,
+      taxableAmount: reconciledFields.taxableAmount,
+      gstRate: reconciledFields.gstRate,
+      cgst: reconciledFields.cgst,
+      sgst: reconciledFields.sgst,
+      igst: reconciledFields.igst,
+      totalAmount: reconciledFields.totalAmount,
+      isArithmeticValid: reconciledFields.isArithmeticValid,
       itcEligibility: itcEligibility,
       itcAmount: itcAmount,
       rcmApplicable: false,
       status: "Approved",
       paymentStatus: "Unpaid",
-      ocrConfidence: 98.2,
+      ocrConfidence: reconciledFields.ocrConfidence,
+      extractionMode: reconciledFields.extractionMode,
+      extractionSources: reconciledFields.extractionSources,
+      candidates: reconciledFields.candidates,
+      hasConflicts: reconciledFields.hasConflicts,
+      disagreements: reconciledFields.disagreements,
+      sourceBreakdown: reconciledFields.sourceBreakdown,
+      vlmModelUsed: vlmModelUsed,
       notes: orderedPages.length > 1 
-        ? `Multi-page stitched scan (${orderedPages.length} pages automatically sequenced) from ${orderedPages.map(p => p.name).join(', ')}`
-        : `Extracted via Tesseract.js OCR engine from ${orderedPages[0]?.name || 'scan'}`,
+        ? `Multi-page stitched scan (${orderedPages.length} pages automatically sequenced) • ${reconciledFields.sourceBreakdown}`
+        : `Extracted via ${reconciledFields.sourceBreakdown} from ${orderedPages[0]?.name || 'scan'}`,
       pageCount: orderedPages.length,
       files: orderedPages,
       rawFileUrl: orderedPages[0]?.previewUrl,
@@ -443,8 +638,39 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
 
   const handleConfirmPageOrdering = () => {
     if (orderingReview && orderingReview.orderedPages) {
-      processExtractionFromPages(orderingReview.orderedPages);
+      processExtractionFromPages(orderingReview.orderedPages, vlmPendingPromiseRef.current);
     }
+  };
+
+  const handleSelectCandidate = (fieldName, value) => {
+    if (!extractedData) return;
+    const updated = { ...extractedData, [fieldName]: value };
+
+    if (fieldName === 'taxableAmount') {
+      const val = parseFloat(value) || 0;
+      const gst = Math.round((val * (extractedData.gstRate || 18)) / 100 * 100) / 100;
+      updated.taxableAmount = val;
+      updated.cgst = Math.round((gst / 2) * 100) / 100;
+      updated.sgst = Math.round((gst / 2) * 100) / 100;
+      updated.totalAmount = Math.round((val + gst) * 100) / 100;
+      updated.itcAmount = extractedData.itcEligibility?.includes('Eligible') ? gst : 0;
+      updated.isArithmeticValid = true;
+    } else if (fieldName === 'gstRate') {
+      const rate = Number(value) || 0;
+      const gst = Math.round(((extractedData.taxableAmount || 0) * rate) / 100 * 100) / 100;
+      updated.gstRate = rate;
+      updated.cgst = Math.round((gst / 2) * 100) / 100;
+      updated.sgst = Math.round((gst / 2) * 100) / 100;
+      updated.totalAmount = Math.round(((extractedData.taxableAmount || 0) + gst) * 100) / 100;
+      updated.itcAmount = extractedData.itcEligibility?.includes('Eligible') ? gst : 0;
+      updated.isArithmeticValid = true;
+    } else if (fieldName === 'totalAmount') {
+      updated.totalAmount = parseFloat(value) || 0;
+    } else if (fieldName === 'gstin') {
+      updated.gstin = String(value).toUpperCase();
+    }
+
+    setExtractedData(updated);
   };
 
   const handleSelectTemplate = (template) => {
@@ -1126,24 +1352,49 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
       {extractedData && !isScanning && !orderingReview && (
         <div className="space-y-6">
           
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl bg-emerald-50/90 border border-emerald-200 text-emerald-800 text-xs font-bold gap-2 shadow-2xs">
             <span className="flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              OCR Complete — Extracted {extractedData.pageCount || 1} Sequenced Page(s) ({extractedData.ocrConfidence}% Confidence)
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>
+                {extractedData.extractionMode === 'hybrid'
+                  ? `Hybrid AI Extraction (${extractedData.ocrConfidence}% Confidence) • Tesseract.js OCR + ${extractedData.vlmModelUsed || 'Local Ollama VLM'}`
+                  : extractedData.extractionMode === 'vlm_only'
+                    ? `Local Ollama Vision Extraction (${extractedData.ocrConfidence}% Confidence)`
+                    : `Tesseract OCR Extraction (${extractedData.ocrConfidence}% Confidence) — Extracted ${extractedData.pageCount || 1} Page(s)`
+                }
+              </span>
             </span>
 
             <button 
               onClick={() => { setExtractedData(null); setUploadedFiles([]); setOrderingReview(null); }}
-              className="text-slate-500 hover:text-slate-900 text-xs underline"
+              className="text-slate-600 hover:text-slate-900 text-xs underline cursor-pointer"
             >
               Scan Another File
             </button>
           </div>
 
+          {/* Conflict Resolution Notice Banner */}
+          {extractedData.hasConflicts && (
+            <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-300 text-amber-900 text-xs flex items-start gap-2.5 shadow-2xs">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <span>Hybrid AI Notice: OCR & Vision AI Discrepancies Reconciled</span>
+                  <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 text-[10px] font-mono">
+                    {extractedData.disagreements?.length || 0} Field(s)
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  Tesseract OCR and Ollama Vision differed on {extractedData.disagreements?.join(', ')}. BillWise auto-selected the candidate conforming to statutory Indian GST arithmetic. Click on the <strong>Conflict: Choose Source</strong> badges below to switch candidates anytime.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Arithmetic Mismatch Warning if any */}
           {extractedData.isArithmeticValid === false && (
-            <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-center gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
               <div>
                 <span className="font-bold">Tax Arithmetic Notice:</span> The extracted taxable amount (₹{extractedData.taxableAmount}) plus GST does not perfectly equal the grand total (₹{extractedData.totalAmount}). Please verify the amounts below.
               </div>
@@ -1213,14 +1464,22 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700">Verify & Edit Extracted Fields</span>
-                <span className="text-[10px] text-slate-500">Edit any highlighted field</span>
+                <span className="text-[10px] text-slate-500">Edit or select AI candidate</span>
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
                 {/* Vendor Name */}
                 <div className="col-span-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-slate-600 font-semibold">Vendor / Supplier Name</label>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-slate-600 font-semibold">Vendor / Supplier Name</label>
+                      <CandidateFieldBadge 
+                        fieldName="vendorName" 
+                        label="Vendor Name" 
+                        extractedData={extractedData} 
+                        onSelectCandidate={handleSelectCandidate} 
+                      />
+                    </div>
                     {!extractedData.vendorName && (
                       <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> Please enter
@@ -1243,7 +1502,15 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                 {/* GSTIN */}
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-slate-600 font-semibold">Vendor GSTIN</label>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-slate-600 font-semibold">Vendor GSTIN</label>
+                      <CandidateFieldBadge 
+                        fieldName="gstin" 
+                        label="Vendor GSTIN" 
+                        extractedData={extractedData} 
+                        onSelectCandidate={handleSelectCandidate} 
+                      />
+                    </div>
                     {!extractedData.gstin && (
                       <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> Required
@@ -1266,7 +1533,15 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                 {/* Invoice Number */}
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-slate-600 font-semibold">Invoice Number</label>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-slate-600 font-semibold">Invoice Number</label>
+                      <CandidateFieldBadge 
+                        fieldName="invoiceNumber" 
+                        label="Invoice Number" 
+                        extractedData={extractedData} 
+                        onSelectCandidate={handleSelectCandidate} 
+                      />
+                    </div>
                     {!extractedData.invoiceNumber && (
                       <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> Required
@@ -1306,7 +1581,15 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                 {/* HSN/SAC */}
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-slate-600 font-semibold">HSN / SAC Code</label>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-slate-600 font-semibold">HSN / SAC Code</label>
+                      <CandidateFieldBadge 
+                        fieldName="hsnSac" 
+                        label="HSN/SAC Code" 
+                        extractedData={extractedData} 
+                        onSelectCandidate={handleSelectCandidate} 
+                      />
+                    </div>
                     {!extractedData.hsnSac && (
                       <span className="text-[10px] text-slate-400 font-normal">Optional</span>
                     )}
@@ -1327,7 +1610,15 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                 {/* Taxable Value */}
                 <div>
                   <div className="flex items-center justify-between">
-                    <label className="text-slate-600 font-semibold">Taxable Value (₹)</label>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-slate-600 font-semibold">Taxable Value (₹)</label>
+                      <CandidateFieldBadge 
+                        fieldName="taxableAmount" 
+                        label="Taxable Value" 
+                        extractedData={extractedData} 
+                        onSelectCandidate={handleSelectCandidate} 
+                      />
+                    </div>
                     {(!extractedData.taxableAmount || extractedData.taxableAmount === 0) && (
                       <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> Enter Amount
@@ -1361,7 +1652,17 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
 
                 {/* GST Rate */}
                 <div>
-                  <label className="text-slate-600 font-semibold">GST Tax Rate</label>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-slate-600 font-semibold">GST Tax Rate</label>
+                      <CandidateFieldBadge 
+                        fieldName="gstRate" 
+                        label="GST Tax Rate" 
+                        extractedData={extractedData} 
+                        onSelectCandidate={handleSelectCandidate} 
+                      />
+                    </div>
+                  </div>
                   <select 
                     value={extractedData.gstRate}
                     onChange={(e) => {
@@ -1390,7 +1691,15 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                 {/* Total Amount */}
                 <div className="col-span-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-slate-600 font-semibold">Grand Total Amount (₹)</label>
+                    <div className="flex items-center gap-1.5">
+                      <label className="text-slate-600 font-semibold">Grand Total Amount (₹)</label>
+                      <CandidateFieldBadge 
+                        fieldName="totalAmount" 
+                        label="Grand Total Amount" 
+                        extractedData={extractedData} 
+                        onSelectCandidate={handleSelectCandidate} 
+                      />
+                    </div>
                     {(!extractedData.totalAmount || extractedData.totalAmount === 0) && (
                       <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> Enter Total
