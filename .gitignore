@@ -1,0 +1,33 @@
+# Node.js
+**/node_modules/
+**/dist/
+**/dist-ssr/
+*.local
+**/.env
+**/.env.*
+.env
+
+# Maven & Java Build Output
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Python ML Virtual Environment
+**/.venv/
+**/venv/
+**/ENV/
+**/__pycache__/
+*.py[cod]
+
+# IDEs & System Files
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,110 @@
+{
+  "accuracy": 1.0,
+  "macro_f1": 1.0,
+  "weighted_f1": 1.0,
+  "detailed_metrics": {
+    "Raw Materials": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Capital Goods & Office Assets": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Cloud Infrastructure": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Software & Subscriptions": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Freight & Transport": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Food & Entertainment": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Professional & Legal Services": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Utilities": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Rent & Facilities": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Marketing & Advertising": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Office Supplies & Stationery": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Insurance": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Travel & Conveyance": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Repairs & Maintenance": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "Other": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 150.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 150.0
+    }
+  }
+}

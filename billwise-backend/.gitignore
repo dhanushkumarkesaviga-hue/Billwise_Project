@@ -1,0 +1,30 @@
+# Maven build targets & class files
+target/
+**/target/
+*.class
+*.jar
+*.war
+*.ear
+
+# IDE & Editor files
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+.factorypath
+
+# Python ML environment & caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# OS & Logs
+*.log
+.DS_Store
+Thumbs.db

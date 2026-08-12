@@ -1,0 +1,25 @@
+{
+  "accuracy": 1.0,
+  "macro_f1": 1.0,
+  "test_report": "                               precision    recall  f1-score   support\n\n                Raw Materials     1.0000    1.0000    1.0000        10\nCapital Goods & Office Assets     1.0000    1.0000    1.0000        10\n         Cloud Infrastructure     1.0000    1.0000    1.0000        10\n     Software & Subscriptions     1.0000    1.0000    1.0000        10\n          Freight & Transport     1.0000    1.0000    1.0000        10\n         Food & Entertainment     1.0000    1.0000    1.0000        10\nProfessional & Legal Services     1.0000    1.0000    1.0000        10\n                    Utilities     1.0000    1.0000    1.0000        10\n            Rent & Facilities     1.0000    1.0000    1.0000        10\n      Marketing & Advertising     1.0000    1.0000    1.0000        10\n Office Supplies & Stationery     1.0000    1.0000    1.0000        10\n                    Insurance     1.0000    1.0000    1.0000        10\n          Travel & Conveyance     1.0000    1.0000    1.0000        10\n        Repairs & Maintenance     1.0000    1.0000    1.0000        10\n                        Other     1.0000    1.0000    1.0000        10\n\n                     accuracy                         1.0000       150\n                    macro avg     1.0000    1.0000    1.0000       150\n                 weighted avg     1.0000    1.0000    1.0000       150\n",
+  "classes": [
+    "Capital Goods & Office Assets",
+    "Cloud Infrastructure",
+    "Food & Entertainment",
+    "Freight & Transport",
+    "Insurance",
+    "Marketing & Advertising",
+    "Office Supplies & Stationery",
+    "Other",
+    "Professional & Legal Services",
+    "Raw Materials",
+    "Rent & Facilities",
+    "Repairs & Maintenance",
+    "Software & Subscriptions",
+    "Travel & Conveyance",
+    "Utilities"
+  ],
+  "num_train": 600,
+  "num_test": 150,
+  "trained_at": "2026-08-10T14:07:46.187204"
+}

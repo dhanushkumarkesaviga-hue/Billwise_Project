@@ -1,0 +1,69 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        # Route Auth, Users & Merchants to auth-service
+        - id: auth-service-auth
+          uri: ${AUTH_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/auth/**
+        - id: auth-service-oauth2
+          uri: ${AUTH_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/oauth2/**, /login/oauth2/**
+        - id: auth-service-users
+          uri: ${AUTH_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/users/**
+        - id: auth-service-merchants
+          uri: ${AUTH_SERVICE_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/merchants/**
+
+        # Route Invoices, Deadlines & Copilot to invoice-service
+        - id: invoice-service-invoices
+          uri: ${INVOICE_SERVICE_URI:http://localhost:8083}
+          predicates:
+            - Path=/api/invoices/**
+        - id: invoice-service-deadlines
+          uri: ${INVOICE_SERVICE_URI:http://localhost:8083}
+          predicates:
+            - Path=/api/deadlines/**
+        - id: invoice-service-copilot
+          uri: ${INVOICE_SERVICE_URI:http://localhost:8083}
+          predicates:
+            - Path=/api/copilot/**
+
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:3000"
+              - "http://localhost:5173"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - "*"
+            allowCredentials: true
+
+eureka:
+  instance:
+    prefer-ip-address: true
+  client:
+    registryFetchIntervalSeconds: 2
+    service-url:
+      defaultZone: http://localhost:8761/eureka/

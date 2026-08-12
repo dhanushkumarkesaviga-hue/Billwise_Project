@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: billwise-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - billwise-network
+
+  eureka-server:
+    build:
+      context: ./eureka-server
+      dockerfile: Dockerfile
+    container_name: billwise-eureka-server
+    ports:
+      - "8761:8761"
+    networks:
+      - billwise-network
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: billwise-auth-service
+    ports:
+      - "8082:8082"
+    environment:
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/billwise
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+    depends_on:
+      - mongodb
+      - eureka-server
+    networks:
+      - billwise-network
+
+  invoice-service:
+    build:
+      context: ./invoice-service
+      dockerfile: Dockerfile
+    container_name: billwise-invoice-service
+    ports:
+      - "8083:8083"
+    environment:
+      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/billwise
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+    depends_on:
+      - mongodb
+      - eureka-server
+    networks:
+      - billwise-network
+
+  api-gateway:
+    build:
+      context: ./api-gateway
+      dockerfile: Dockerfile
+    container_name: billwise-api-gateway
+    ports:
+      - "8081:8081"
+    environment:
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
+    depends_on:
+      - eureka-server
+      - auth-service
+      - invoice-service
+    networks:
+      - billwise-network
+
+networks:
+  billwise-network:
+    driver: bridge
+
+volumes:
+  mongo-data:

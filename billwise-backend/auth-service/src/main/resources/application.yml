@@ -1,0 +1,57 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: auth-service
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/billwise
+  mail:
+    host: ${SPRING_MAIL_HOST:smtp.gmail.com}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:your_email@gmail.com}
+    password: ${SPRING_MAIL_PASSWORD:your_app_password}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: false
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:YOUR_GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET:YOUR_GOOGLE_CLIENT_SECRET}
+            scope:
+              - email
+              - profile
+        provider:
+          google:
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://oauth2.googleapis.com/token
+            user-info-uri: https://openidconnect.googleapis.com/v1/userinfo
+            user-name-attribute: email
+
+eureka:
+  instance:
+    prefer-ip-address: true
+    leaseRenewalIntervalInSeconds: 3
+    leaseExpirationDurationInSeconds: 10
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+billwise:
+  jwt:
+    secret: billwise-super-secret-jwt-signing-key-for-gst-saas-2026-production-grade
+    expiration-ms: 86400000
+  oauth2:
+    frontend-redirect-uri: ${OAUTH2_FRONTEND_REDIRECT_URI:http://localhost:3000}
