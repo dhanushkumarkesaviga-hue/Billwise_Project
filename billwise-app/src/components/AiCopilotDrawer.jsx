@@ -1,38 +1,96 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Bot, 
   X, 
-  Send
+  Send,
+  RotateCcw,
+  Sparkles
 } from 'lucide-react';
 import { copilotApi } from '../api';
 
 const WELCOME_MESSAGE = {
   sender: 'ai',
-  text: "Hello! I am your BillWise AI Financial & GST Assistant. How can I help you with tax claims, invoice OCR, or GST deadlines today?"
+  text: "Hello! I am your **BillWise AI Financial & GST Assistant**. How can I help you with tax claims, Input Tax Credit (ITC), invoice verification, or statutory GST deadlines today?"
 };
 
-export default function AiCopilotDrawer({ isOpen, onClose, invoices }) {
+function FormattedMessage({ text }) {
+  if (!text) return null;
+
+  // Render markdown-style bold and paragraphs cleanly
+  const lines = text.split('\n');
+
+  return (
+    <div className="space-y-1.5 leading-relaxed text-xs">
+      {lines.map((line, lineIdx) => {
+        if (!line.trim()) {
+          return <div key={lineIdx} className="h-1" />;
+        }
+
+        // Split by ** for bold
+        const parts = line.split(/(\*\*[^*]+\*\*)/g);
+
+        return (
+          <p key={lineIdx} className={line.startsWith('•') || line.startsWith('-') || line.startsWith('* ') ? 'pl-2' : ''}>
+            {parts.map((part, partIdx) => {
+              if (part.startsWith('**') && part.endsWith('**')) {
+                return (
+                  <strong key={partIdx} className="font-bold text-slate-900">
+                    {part.slice(2, -2)}
+                  </strong>
+                );
+              }
+              return <span key={partIdx}>{part}</span>;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function AiCopilotDrawer({ isOpen, onClose, invoices, currentUser }) {
+  const currentUsername = currentUser?.username || (() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem('billwise_auth') || localStorage.getItem('billwise_auth') || '{}');
+      return stored?.username || 'anonymous';
+    } catch (e) {
+      return 'anonymous';
+    }
+  })();
+
   const [messages, setMessages] = useState([WELCOME_MESSAGE]);
   const [inputQuery, setInputQuery] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [sessionId] = useState(() => copilotApi.getSessionId());
-  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [sessionId, setSessionId] = useState(() => copilotApi.getSessionId(currentUsername));
+  const chatBottomRef = useRef(null);
 
-  // Load any previously saved conversation for this session on first open
+  const scrollToBottom = () => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
   useEffect(() => {
-    if (!isOpen || historyLoaded) return;
+    scrollToBottom();
+  }, [messages, isSending]);
 
-    copilotApi.getHistory(sessionId)
+  // Load user's private chat history when drawer opens or user changes
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const userSessionId = copilotApi.getSessionId(currentUsername);
+    setSessionId(userSessionId);
+
+    copilotApi.getHistory(userSessionId)
       .then((history) => {
         if (history && history.length > 0) {
           setMessages(history);
+        } else {
+          setMessages([WELCOME_MESSAGE]);
         }
       })
       .catch(() => {
-        // If the backend is unreachable, just keep the local welcome message
-      })
-      .finally(() => setHistoryLoaded(true));
-  }, [isOpen, historyLoaded, sessionId]);
+        setMessages([WELCOME_MESSAGE]);
+      });
+  }, [isOpen, currentUsername]);
 
   if (!isOpen) return null;
 
@@ -53,16 +111,28 @@ export default function AiCopilotDrawer({ isOpen, onClose, invoices }) {
     setIsSending(true);
 
     try {
-      const { reply } = await copilotApi.sendMessage(sessionId, query);
-      setMessages(prev => [...prev, { sender: 'ai', text: reply }]);
+      const res = await copilotApi.sendMessage(sessionId, query);
+      const replyText = res?.reply || "I couldn't process this request. Please try again.";
+      setMessages(prev => [...prev, { sender: 'ai', text: replyText }]);
     } catch (err) {
       setMessages(prev => [...prev, {
         sender: 'ai',
-        text: `Sorry, I couldn't reach the AI backend (${err.message}). Make sure the Spring Boot app is running on port 8081 with a valid GEMINI_API_KEY.`
+        text: `Sorry, I couldn't reach the AI service (${err.message}). Please verify the server is running.`
       }]);
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleClearHistory = async () => {
+    try {
+      await copilotApi.clearHistory(sessionId);
+    } catch (e) {}
+    const newSession = `${currentUsername}_${crypto.randomUUID()}`;
+    const storageKey = `billwise_copilot_session_${currentUsername}`;
+    localStorage.setItem(storageKey, newSession);
+    setSessionId(newSession);
+    setMessages([WELCOME_MESSAGE]);
   };
 
   return (
@@ -86,12 +156,21 @@ export default function AiCopilotDrawer({ isOpen, onClose, invoices }) {
             </div>
           </div>
 
-          <button 
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button 
+              onClick={handleClearHistory}
+              title="Reset conversation"
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition text-xs flex items-center gap-1"
+            >
+              <RotateCcw className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Chat Body */}
@@ -99,7 +178,10 @@ export default function AiCopilotDrawer({ isOpen, onClose, invoices }) {
           
           {/* Quick Chip Prompts */}
           <div className="space-y-2">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">Suggested Questions</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-rose-500" />
+              Suggested Questions
+            </span>
             <div className="flex flex-wrap gap-2">
               {sampleQuestions.map((q, idx) => (
                 <button
@@ -121,31 +203,39 @@ export default function AiCopilotDrawer({ isOpen, onClose, invoices }) {
                 className={`flex gap-3 ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                 {msg.sender === 'ai' && (
-                  <div className="w-7 h-7 rounded-lg bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+                  <div className="w-7 h-7 rounded-lg bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0 mt-0.5">
                     <Bot className="w-4 h-4" />
                   </div>
                 )}
 
-                <div className={`p-3.5 rounded-2xl text-xs max-w-[85%] leading-relaxed ${
+                <div className={`p-3.5 rounded-2xl text-xs max-w-[85%] ${
                   msg.sender === 'user'
-                    ? 'bg-rose-600 text-white rounded-br-none font-medium shadow-xs'
+                    ? 'bg-rose-600 text-white rounded-br-none font-medium shadow-xs whitespace-pre-wrap'
                     : 'bg-white text-slate-800 border border-slate-200 rounded-bl-none shadow-2xs'
                 }`}>
-                  {msg.text}
+                  {msg.sender === 'user' ? (
+                    msg.text
+                  ) : (
+                    <FormattedMessage text={msg.text} />
+                  )}
                 </div>
               </div>
             ))}
 
             {isSending && (
               <div className="flex gap-3 justify-start">
-                <div className="w-7 h-7 rounded-lg bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
-                  <Bot className="w-4 h-4 animate-pulse" />
+                <div className="w-7 h-7 rounded-lg bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0 animate-pulse">
+                  <Bot className="w-4 h-4" />
                 </div>
-                <div className="p-3.5 rounded-2xl text-xs bg-white text-slate-400 border border-slate-200 rounded-bl-none shadow-2xs italic">
-                  Thinking…
+                <div className="p-3.5 rounded-2xl text-xs bg-white text-slate-400 border border-slate-200 rounded-bl-none shadow-2xs italic flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-bounce"></span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-bounce [animation-delay:0.2s]"></span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-bounce [animation-delay:0.4s]"></span>
+                  Analyzing GST ledger…
                 </div>
               </div>
             )}
+            <div ref={chatBottomRef} />
           </div>
 
         </div>
@@ -166,7 +256,7 @@ export default function AiCopilotDrawer({ isOpen, onClose, invoices }) {
             />
             <button 
               type="submit"
-              disabled={isSending}
+              disabled={isSending || !inputQuery.trim()}
               className="p-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold transition shadow-sm disabled:opacity-60"
             >
               <Send className="w-4 h-4" />

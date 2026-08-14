@@ -1,6 +1,6 @@
 import { isJwtExpired } from './utils/tokenUtils';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8081/api';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 const STORAGE_KEY = 'billwise_session_auth';
 let memoryToken = null;
@@ -175,8 +175,8 @@ export const authApi = {
     return handleResponse(res, true);
   },
 
-  verifyOtp: async (identifier, otp) => {
-    const res = await fetch(`${API_BASE}/auth/verify-otp`, {
+  verifyResetOtp: async (identifier, otp) => {
+    const res = await fetch(`${API_BASE}/auth/verify-reset-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ identifier, otp }),
@@ -292,6 +292,12 @@ export const merchantApi = {
       body: JSON.stringify({ verified }),
     }).then(r => handleResponse(r, false)),
 
+  deleteStaff: (staffUserId) =>
+    fetch(`${API_BASE}/merchants/staff/${staffUserId}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    }).then(r => handleResponse(r, false)),
+
   getPendingPasswordResets: () =>
     fetch(`${API_BASE}/merchants/password-resets/pending`, {
       headers: { ...authHeaders() },
@@ -322,6 +328,13 @@ export const userApi = {
   getMe: () =>
     fetch(`${API_BASE}/users/me`, {
       headers: { ...authHeaders() },
+    }).then(r => handleResponse(r, false)),
+
+  sendEmailChangeOtp: (newEmail) =>
+    fetch(`${API_BASE}/users/me/send-email-change-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({ newEmail }),
     }).then(r => handleResponse(r, false)),
 
   updateProfile: (profileData) =>
@@ -431,14 +444,36 @@ export const invoiceApi = {
 
 export const deadlineApi = {
   getAll: () => fetch(`${API_BASE}/deadlines`, { headers: { ...authHeaders() } }).then(r => handleResponse(r, false)),
+  getPersonalized: () => fetch(`${API_BASE}/deadlines/personalized`, { headers: { ...authHeaders() } }).then(r => handleResponse(r, false)),
+  triggerTestReminder: () =>
+    fetch(`${API_BASE}/deadlines/trigger-reminder-test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    }).then(r => handleResponse(r, false)),
+  updatePreferences: (payload) =>
+    fetch(`${API_BASE}/deadlines/preferences`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(payload),
+    }).then(r => handleResponse(r, false)),
 };
 
 export const copilotApi = {
-  getSessionId: () => {
-    let sessionId = localStorage.getItem('billwise_copilot_session');
+  getSessionId: (username = '') => {
+    let cleanUser = username;
+    if (!cleanUser) {
+      try {
+        const stored = JSON.parse(sessionStorage.getItem('billwise_auth') || localStorage.getItem('billwise_auth') || '{}');
+        cleanUser = stored?.username || 'anonymous';
+      } catch (e) {
+        cleanUser = 'anonymous';
+      }
+    }
+    const storageKey = `billwise_copilot_session_${cleanUser}`;
+    let sessionId = localStorage.getItem(storageKey);
     if (!sessionId) {
-      sessionId = crypto.randomUUID();
-      localStorage.setItem('billwise_copilot_session', sessionId);
+      sessionId = `${cleanUser}_${crypto.randomUUID()}`;
+      localStorage.setItem(storageKey, sessionId);
     }
     return sessionId;
   },

@@ -30,6 +30,15 @@ public class MerchantSignupRequest {
 
     private String pincode;
 
+    // GST Compliance Profile
+    private String taxpayerType = "REGULAR"; // REGULAR, COMPOSITION, ISD
+
+    private String turnoverSlab = "UP_TO_1_5_CR"; // UP_TO_1_5_CR, 1_5_TO_5_CR, ABOVE_5_CR
+
+    private String filingFrequency = "MONTHLY"; // MONTHLY, QRMP_QUARTERLY
+
+    private Boolean emailRemindersEnabled = true;
+
     // Contact details
     @NotBlank(message = "Contact email is required")
     @Email(message = "Invalid contact email")
@@ -55,4 +64,8 @@ public class MerchantSignupRequest {
 
     @NotBlank(message = "Admin password is required")
     private String adminPassword;
+
+    // Google Identity / Email OTP Verification
+    private String googleIdToken;
+    private String emailOtp;
 }

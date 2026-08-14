@@ -1,16 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Settings, 
-  Building2, 
-  Users, 
-  Bell, 
-  ShieldCheck, 
-  Lock, 
-  Save, 
-  UserPlus, 
-  CheckCircle2, 
-  AlertCircle, 
-  Trash2, 
+import {
+  Settings,
+  Building2,
+  Users,
+  Bell,
+  ShieldCheck,
+  Lock,
+  Save,
+  UserPlus,
+  CheckCircle2,
+  AlertCircle,
+  Trash2,
   Power,
   MapPin,
   Mail,
@@ -45,7 +45,12 @@ export default function SettingsPage({ onSelectInvoice }) {
     pincode: '',
     contactEmail: '',
     contactPhone: '',
-    status: ''
+    status: '',
+    taxpayerType: 'REGULAR',
+    turnoverSlab: 'UP_TO_1_5_CR',
+    filingFrequency: 'MONTHLY',
+    autoBumpedToMonthly: false,
+    emailRemindersEnabled: true
   });
   const [isSavingBiz, setIsSavingBiz] = useState(false);
   const [bizMsg, setBizMsg] = useState(null);
@@ -88,7 +93,12 @@ export default function SettingsPage({ onSelectInvoice }) {
           pincode: data.pincode || '',
           contactEmail: data.contactEmail || '',
           contactPhone: data.contactPhone || '',
-          status: data.status || 'VERIFIED'
+          status: data.status || 'VERIFIED',
+          taxpayerType: data.taxpayerType || 'REGULAR',
+          turnoverSlab: data.turnoverSlab || 'UP_TO_1_5_CR',
+          filingFrequency: data.filingFrequency || 'MONTHLY',
+          autoBumpedToMonthly: Boolean(data.autoBumpedToMonthly),
+          emailRemindersEnabled: data.emailRemindersEnabled ?? true
         });
       }
     } catch {
@@ -129,9 +139,13 @@ export default function SettingsPage({ onSelectInvoice }) {
         state: businessData.state,
         pincode: businessData.pincode,
         contactEmail: businessData.contactEmail,
-        contactPhone: businessData.contactPhone
+        contactPhone: businessData.contactPhone,
+        taxpayerType: businessData.taxpayerType,
+        turnoverSlab: businessData.turnoverSlab,
+        filingFrequency: businessData.filingFrequency,
+        emailRemindersEnabled: businessData.emailRemindersEnabled
       });
-      setBizMsg("Business details updated successfully!");
+      setBizMsg("Business details & GST compliance profile updated successfully!");
       await refreshProfile();
       setTimeout(() => setBizMsg(null), 3000);
     } catch (err) {
@@ -177,11 +191,10 @@ export default function SettingsPage({ onSelectInvoice }) {
           {isMerchantAdmin && (
             <button
               onClick={() => setActiveTab('business')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-                activeTab === 'business'
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-              }`}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${activeTab === 'business'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
             >
               <Building2 className="w-3.5 h-3.5" /> Business Profile
             </button>
@@ -190,11 +203,10 @@ export default function SettingsPage({ onSelectInvoice }) {
           {isMerchantAdmin && (
             <button
               onClick={() => setActiveTab('staff')}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-                activeTab === 'staff'
-                  ? 'bg-rose-600 text-white shadow-xs'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-              }`}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${activeTab === 'staff'
+                ? 'bg-rose-600 text-white shadow-xs'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
             >
               <Users className="w-3.5 h-3.5" /> Accountants & Activities
             </button>
@@ -202,25 +214,15 @@ export default function SettingsPage({ onSelectInvoice }) {
 
           <button
             onClick={() => setActiveTab('notifications')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-              activeTab === 'notifications'
-                ? 'bg-rose-600 text-white shadow-xs'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-            }`}
+            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${activeTab === 'notifications'
+              ? 'bg-rose-600 text-white shadow-xs'
+              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+              }`}
           >
             <Bell className="w-3.5 h-3.5" /> Notifications & Tax Alerts
           </button>
 
-          <button
-            onClick={() => setActiveTab('security')}
-            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${
-              activeTab === 'security'
-                ? 'bg-rose-600 text-white shadow-xs'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-            }`}
-          >
-            <ShieldCheck className="w-3.5 h-3.5" /> Sessions & Security
-          </button>
+
         </div>
       </div>
 
@@ -251,7 +253,7 @@ export default function SettingsPage({ onSelectInvoice }) {
           )}
 
           <form onSubmit={handleSaveBusiness} className="space-y-4">
-            
+
             {/* Identity Locked GSTIN & Legal Name Box */}
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
@@ -359,6 +361,88 @@ export default function SettingsPage({ onSelectInvoice }) {
               </div>
             </div>
 
+            {/* GST Statutory Profile & Turnover Compliance Card */}
+            <div className="p-5 rounded-2xl bg-rose-50/40 border border-rose-200 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-rose-600" />
+                  GST Statutory Profile & Turnover Bracket
+                </span>
+                {businessData.autoBumpedToMonthly && (
+                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">
+                    Auto-Bumped to Monthly (&gt; ₹5 Cr)
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                    Turnover Bracket
+                  </label>
+                  <select
+                    value={businessData.turnoverSlab}
+                    onChange={(e) => {
+                      const slab = e.target.value;
+                      setBusinessData(prev => ({
+                        ...prev,
+                        turnoverSlab: slab,
+                        filingFrequency: slab === 'ABOVE_5_CR' ? 'MONTHLY' : prev.filingFrequency
+                      }));
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-900 text-xs font-medium focus:border-rose-500 outline-none"
+                  >
+                    <option value="UP_TO_1_5_CR">Up to ₹1.5 Crore (Micro/Small)</option>
+                    <option value="1_5_TO_5_CR">₹1.5 Crore – ₹5 Crore (QRMP Eligible)</option>
+                    <option value="ABOVE_5_CR">Above ₹5 Crore (Mandatory Monthly)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                    GST Return Filing Frequency
+                  </label>
+                  <select
+                    value={businessData.filingFrequency}
+                    disabled={businessData.turnoverSlab === 'ABOVE_5_CR'}
+                    onChange={(e) => setBusinessData({ ...businessData, filingFrequency: e.target.value })}
+                    className={`w-full px-3 py-2.5 rounded-xl border text-xs font-medium outline-none ${
+                      businessData.turnoverSlab === 'ABOVE_5_CR'
+                        ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed'
+                        : 'bg-white border-slate-200 text-slate-900 focus:border-rose-500'
+                    }`}
+                  >
+                    <option value="MONTHLY">Monthly (GSTR-1 by 11th, GSTR-3B by 20th)</option>
+                    <option value="QRMP_QUARTERLY">Quarterly (QRMP Scheme - Turnover ≤ ₹5 Cr)</option>
+                  </select>
+                </div>
+              </div>
+
+              {businessData.turnoverSlab === 'ABOVE_5_CR' ? (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                  <p className="font-bold">⚠️ Statutory CGST Mandate Active:</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed">
+                    Under CGST Rule 59(6) and Section 39, enterprises with annual turnover above ₹5 Crore are required to file monthly GSTR-1 and GSTR-3B and submit annual GSTR-9 and GSTR-9C reconciliation statements.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[11px] text-slate-600">
+                    Send automated statutory compliance email alerts <strong>3 days</strong> prior to every return deadline:
+                  </span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={businessData.emailRemindersEnabled}
+                      onChange={(e) => setBusinessData({ ...businessData, emailRemindersEnabled: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                  </label>
+                </div>
+              )}
+            </div>
+
             <div className="pt-2 flex justify-end">
               <button
                 type="submit"
@@ -405,7 +489,7 @@ export default function SettingsPage({ onSelectInvoice }) {
           )}
 
           <div className="space-y-4">
-            
+
             {/* Toggle 1: Email Alerts */}
             <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
               <div>
@@ -482,8 +566,7 @@ export default function SettingsPage({ onSelectInvoice }) {
                   className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 outline-none"
                 >
                   <option value="INR (₹)">INR (₹) - Indian Rupee</option>
-                  <option value="USD ($)">USD ($) - US Dollar</option>
-                  <option value="EUR (€)">EUR (€) - Euro</option>
+
                 </select>
               </div>
 
@@ -497,9 +580,8 @@ export default function SettingsPage({ onSelectInvoice }) {
                   className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-800 outline-none"
                 >
                   <option value="English">English</option>
-                  <option value="Hindi">हिन्दी (Hindi)</option>
-                  <option value="Marathi">मराठी (Marathi)</option>
-                  <option value="Gujarati">ગુજરાતી (Gujarati)</option>
+                  <option value="tamil">தமிழ்</option>
+
                 </select>
               </div>
             </div>

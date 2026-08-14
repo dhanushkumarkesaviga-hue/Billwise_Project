@@ -1,16 +1,15 @@
 package com.billwise.auth.entity;
 
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.index.Indexed;
-import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 
-@Document(collection = "email_otp_verifications")
+@Entity
+@Table(name = "email_otp_verifications")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -18,14 +17,16 @@ import java.time.Instant;
 public class EmailOtpVerification {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
-    @Indexed
+    @Column(nullable = false)
     private String email;
 
     /**
      * Stored as a secure BCrypt hash, never plaintext
      */
+    @Column(nullable = false)
     private String otpHash;
 
     /**

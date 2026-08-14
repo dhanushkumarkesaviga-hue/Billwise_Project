@@ -15,6 +15,7 @@ import {
   Plus
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import ExpenseCategoryChart from './ExpenseCategoryChart';
 
 export default function DashboardOverview({ invoices = [], onOpenScanModal, setActiveTab, onSelectInvoice }) {
   const { merchantTradeName, fullName, username } = useAuth();
@@ -154,6 +155,14 @@ export default function DashboardOverview({ invoices = [], onOpenScanModal, setA
         </div>
 
       </div>
+
+      {/* Expense Categorization Breakdown */}
+      <ExpenseCategoryChart 
+        invoices={invoices} 
+        onOpenScanModal={onOpenScanModal}
+        title="Expense Breakdown by Business Category"
+        subtitle="Visual analytics on total expenditures grouped by statutory tax and MSME supply categories"
+      />
 
       {/* Main Content Grid: Recent Scanned Invoices + Tax Readiness */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

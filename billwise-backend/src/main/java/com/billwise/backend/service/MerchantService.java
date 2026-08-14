@@ -92,6 +92,18 @@ public class MerchantService {
         merchant.setStatus(MerchantStatus.PENDING_VERIFICATION);
         merchant.setDuplicateWarningFlags(warningFlags);
         merchant.setAdminUsername(req.getAdminUsername().trim());
+
+        String taxpayerType = req.getTaxpayerType() != null && !req.getTaxpayerType().isBlank() ? req.getTaxpayerType().trim().toUpperCase() : "REGULAR";
+        String turnoverSlab = req.getTurnoverSlab() != null && !req.getTurnoverSlab().isBlank() ? req.getTurnoverSlab().trim().toUpperCase() : "UP_TO_1_5_CR";
+        String filingFreq = req.getFilingFrequency() != null && !req.getFilingFrequency().isBlank() ? req.getFilingFrequency().trim().toUpperCase() : "MONTHLY";
+        if ("ABOVE_5_CR".equals(turnoverSlab)) {
+            filingFreq = "MONTHLY";
+        }
+        merchant.setTaxpayerType(taxpayerType);
+        merchant.setTurnoverSlab(turnoverSlab);
+        merchant.setFilingFrequency(filingFreq);
+        merchant.setEmailRemindersEnabled(req.getEmailRemindersEnabled() == null || req.getEmailRemindersEnabled());
+
         merchant.setCreatedAt(Instant.now());
         merchant.setUpdatedAt(Instant.now());
 
@@ -323,6 +335,22 @@ public class MerchantService {
         if (req.getPincode() != null && !req.getPincode().isBlank()) merchant.setPincode(req.getPincode().trim());
         if (req.getContactEmail() != null && !req.getContactEmail().isBlank()) merchant.setContactEmail(req.getContactEmail().trim());
         if (req.getContactPhone() != null && !req.getContactPhone().isBlank()) merchant.setContactPhone(req.getContactPhone().trim());
+        if (req.getTaxpayerType() != null && !req.getTaxpayerType().isBlank()) merchant.setTaxpayerType(req.getTaxpayerType().trim().toUpperCase());
+        if (req.getTurnoverSlab() != null && !req.getTurnoverSlab().isBlank()) {
+            merchant.setTurnoverSlab(req.getTurnoverSlab().trim().toUpperCase());
+            if ("ABOVE_5_CR".equalsIgnoreCase(req.getTurnoverSlab())) {
+                merchant.setFilingFrequency("MONTHLY");
+            }
+        }
+        if (req.getFilingFrequency() != null && !req.getFilingFrequency().isBlank()) {
+            if ("ABOVE_5_CR".equalsIgnoreCase(merchant.getTurnoverSlab()) && !"MONTHLY".equalsIgnoreCase(req.getFilingFrequency())) {
+                throw new BadRequestException("Turnover exceeds ₹5 Crore. Statutory CGST Rules mandate Monthly filing (GSTR-1 & GSTR-3B).");
+            }
+            merchant.setFilingFrequency(req.getFilingFrequency().trim().toUpperCase());
+        }
+        if (req.getEmailRemindersEnabled() != null) {
+            merchant.setEmailRemindersEnabled(req.getEmailRemindersEnabled());
+        }
 
         merchant.setUpdatedAt(Instant.now());
         Merchant saved = merchantRepository.save(merchant);

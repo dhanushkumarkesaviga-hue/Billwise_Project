@@ -2,12 +2,12 @@ package com.billwise.auth.repository;
 
 import com.billwise.auth.entity.Merchant;
 import com.billwise.common.entity.MerchantStatus;
-import org.springframework.data.mongodb.repository.MongoRepository;
+import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
 import java.util.Optional;
 
-public interface MerchantRepository extends MongoRepository<Merchant, String> {
+public interface MerchantRepository extends JpaRepository<Merchant, String> {
 
     Optional<Merchant> findByGstin(String gstin);
 

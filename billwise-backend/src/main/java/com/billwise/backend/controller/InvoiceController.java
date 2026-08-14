@@ -12,6 +12,10 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import com.billwise.backend.dto.VlmExtractionRequest;
+import com.billwise.backend.dto.VlmExtractionResponse;
+import com.billwise.backend.service.OllamaVisionService;
+
 import java.security.Principal;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +27,7 @@ public class InvoiceController {
 
     private final InvoiceService invoiceService;
     private final InvoiceClassificationService classificationService;
+    private final OllamaVisionService ollamaVisionService;
 
     // Any authenticated role can read invoices for their merchant
     @GetMapping
@@ -72,7 +77,7 @@ public class InvoiceController {
         return ResponseEntity.ok(result);
     }
 
-    @GetMapping("/stats")
+    @GetMapping({"/stats", "/summary"})
     public Map<String, Object> getDashboardStats(Principal principal) {
         return invoiceService.getDashboardStats(principal.getName());
     }
@@ -82,5 +87,13 @@ public class InvoiceController {
     @PostMapping("/classify")
     public ClassifyResponse classify(@Valid @RequestBody ClassifyRequest request) {
         return classificationService.classify(request.getOcrText(), request.getVendorNameHint());
+    }
+
+    // Vision-Language Model invoice extraction
+    @PreAuthorize("hasAnyRole('ADMIN', 'ACCOUNTANT', 'SUPER_ADMIN')")
+    @PostMapping("/extract-vlm")
+    public ResponseEntity<VlmExtractionResponse> extractVlm(@Valid @RequestBody VlmExtractionRequest request) {
+        VlmExtractionResponse response = ollamaVisionService.extractInvoice(request);
+        return ResponseEntity.ok(response);
     }
 }

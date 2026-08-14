@@ -1,10 +1,12 @@
 package com.billwise.backend.service;
 
 import com.billwise.backend.entity.Invoice;
+import com.billwise.backend.entity.Merchant;
 import com.billwise.backend.entity.Role;
 import com.billwise.backend.entity.User;
 import com.billwise.backend.exception.ResourceNotFoundException;
 import com.billwise.backend.repository.InvoiceRepository;
+import com.billwise.backend.repository.MerchantRepository;
 import com.billwise.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -12,6 +14,8 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.Year;
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
@@ -21,8 +25,11 @@ import java.util.concurrent.ThreadLocalRandom;
 @RequiredArgsConstructor
 public class InvoiceService {
 
+    public static final BigDecimal FIVE_CRORE = new BigDecimal("50000000");
+
     private final InvoiceRepository invoiceRepository;
     private final UserRepository userRepository;
+    private final MerchantRepository merchantRepository;
 
     public List<Invoice> getAllInvoices() {
         return invoiceRepository.findAll();
@@ -121,7 +128,9 @@ public class InvoiceService {
                     duplicate.setNotes(invoice.getNotes());
                 }
 
-                return invoiceRepository.save(duplicate);
+                Invoice savedDuplicate = invoiceRepository.save(duplicate);
+                checkAndApplyTurnoverThreshold(savedDuplicate.getMerchantId());
+                return savedDuplicate;
             }
         }
 
@@ -129,7 +138,9 @@ public class InvoiceService {
             invoice.setId(generateInvoiceId());
         }
 
-        return invoiceRepository.save(invoice);
+        Invoice saved = invoiceRepository.save(invoice);
+        checkAndApplyTurnoverThreshold(saved.getMerchantId());
+        return saved;
     }
 
     public Invoice updateInvoice(String id, Invoice updated, String username) {
@@ -157,7 +168,9 @@ public class InvoiceService {
         existing.setNotes(updated.getNotes());
         existing.setRawFileUrl(updated.getRawFileUrl());
 
-        return invoiceRepository.save(existing);
+        Invoice saved = invoiceRepository.save(existing);
+        checkAndApplyTurnoverThreshold(saved.getMerchantId());
+        return saved;
     }
 
     public Invoice updateStatus(String id, String status, String paymentStatus, String username) {
@@ -324,5 +337,49 @@ public class InvoiceService {
             candidate = "INV-" + year + "-" + random;
         }
         return candidate;
+    }
+
+    /**
+     * Calculates aggregate taxable invoice turnover for a merchant in the current Financial Year (Apr 1 - Mar 31).
+     */
+    public BigDecimal calculateCurrentFyTurnover(String merchantId) {
+        if (merchantId == null) return BigDecimal.ZERO;
+        List<Invoice> invoices = invoiceRepository.findByMerchantId(merchantId);
+
+        LocalDate now = LocalDate.now();
+        int fyStartYear = now.getMonthValue() >= 4 ? now.getYear() : now.getYear() - 1;
+        LocalDate fyStart = LocalDate.of(fyStartYear, 4, 1);
+        LocalDate fyEnd = LocalDate.of(fyStartYear + 1, 3, 31);
+
+        return invoices.stream()
+                .filter(inv -> inv.getInvoiceDate() != null &&
+                        !inv.getInvoiceDate().isBefore(fyStart) &&
+                        !inv.getInvoiceDate().isAfter(fyEnd))
+                .map(inv -> inv.getTaxableAmount() != null ? inv.getTaxableAmount() : (inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * If recorded turnover exceeds ₹5 Crore (50M INR), automatically updates Merchant profile to ABOVE_5_CR and MONTHLY.
+     */
+    public void checkAndApplyTurnoverThreshold(String merchantId) {
+        if (merchantId == null) return;
+        BigDecimal turnover = calculateCurrentFyTurnover(merchantId);
+
+        if (turnover.compareTo(FIVE_CRORE) >= 0) {
+            merchantRepository.findById(merchantId).ifPresent(merchant -> {
+                boolean needsBump = !"ABOVE_5_CR".equalsIgnoreCase(merchant.getTurnoverSlab()) || !"MONTHLY".equalsIgnoreCase(merchant.getFilingFrequency());
+                if (needsBump) {
+                    merchant.setTurnoverSlab("ABOVE_5_CR");
+                    merchant.setFilingFrequency("MONTHLY");
+                    merchant.setAutoBumpedToMonthly(true);
+                    merchant.setTurnoverExceededAt(Instant.now());
+                    merchant.setUpdatedAt(Instant.now());
+                    merchantRepository.save(merchant);
+                    log.warn("[STATUTORY TURNOVER MANDATE] Merchant {} ({}) turnover crossed Rs. 5 Cr (Rs. {}). Automatically bumped to Monthly filing (GSTR-1 & GSTR-3B) and activated GSTR-9/9C mandate.",
+                            merchant.getId(), merchant.getLegalName(), turnover);
+                }
+            });
+        }
     }
 }

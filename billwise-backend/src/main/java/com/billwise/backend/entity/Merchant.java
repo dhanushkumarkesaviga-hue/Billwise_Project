@@ -66,6 +66,14 @@ public class Merchant {
 
     private String adminUsername;
 
+    // GST Profile & Turnover compliance fields
+    private String taxpayerType = "REGULAR"; // REGULAR, COMPOSITION, ISD, TDS_DEDUCTOR, TCS_COLLECTOR
+    private String turnoverSlab = "UP_TO_1_5_CR"; // UP_TO_1_5_CR, 1_5_TO_5_CR, ABOVE_5_CR
+    private String filingFrequency = "MONTHLY"; // MONTHLY, QRMP_QUARTERLY
+    private boolean autoBumpedToMonthly = false;
+    private Instant turnoverExceededAt;
+    private boolean emailRemindersEnabled = true;
+
     private Instant verifiedAt;
 
     private String verifiedBy;

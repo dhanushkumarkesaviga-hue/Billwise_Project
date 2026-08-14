@@ -6,6 +6,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.List;
+
 public class InvoiceDtos {
 
     @Getter
@@ -65,18 +67,39 @@ public class InvoiceDtos {
     @Setter
     @NoArgsConstructor
     @AllArgsConstructor
+    public static class LineItem {
+        private String description;
+        private String hsnSac;
+        private Double quantity;
+        private Double unitPrice;
+        private Double taxableValue;
+        private Double gstRate;
+        private Double cgst;
+        private Double sgst;
+        private Double igst;
+        private Double totalAmount;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class VlmExtractionResult {
         private String vendorName;
         private String gstin;
         private String invoiceNumber;
         private String invoiceDate;
         private String hsnSac;
+        private String documentType; // "tax_invoice" | "bill_of_supply" | "reverse_charge" | "export_zero_rated" | "unclear"
+        private Double extractionConfidence; // 0.0–1.0
+        private List<LineItem> lineItems;
         private Double taxableAmount;
         private Double gstRate;
         private Double cgst;
         private Double sgst;
         private Double igst;
         private Double totalAmount;
+        private Boolean isGstinValid;
     }
 
     @Getter
@@ -92,3 +115,4 @@ public class InvoiceDtos {
         private Boolean isArithmeticValid;
     }
 }
+

@@ -19,14 +19,21 @@ import {
   Store,
   RefreshCw,
   Ban,
-  Check
+  Check,
+  Download,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  X,
+  Maximize2,
+  FileCheck
 } from 'lucide-react';
 import { merchantApi } from '../api';
 import { validateGstin } from '../utils/gstValidation';
 
-export default function SuperAdminVerificationQueue() {
+export default function SuperAdminVerificationQueue({ initialFilter = 'ALL' }) {
   const [merchants, setMerchants] = useState([]);
-  const [selectedStatus, setSelectedStatus] = useState('ALL');
+  const [selectedStatus, setSelectedStatus] = useState(initialFilter || 'ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -34,19 +41,29 @@ export default function SuperAdminVerificationQueue() {
   // Modals
   const [selectedMerchant, setSelectedMerchant] = useState(null);
   const [actionType, setActionType] = useState(null); // 'APPROVE' | 'REJECT' | 'SUSPEND' | 'LOGS' | 'DOC_PREVIEW'
-  const [previewDocUrl, setPreviewDocUrl] = useState(null);
+  const [previewDocInfo, setPreviewDocInfo] = useState(null); // { title, url, merchant, docType }
+  const [docZoom, setDocZoom] = useState(1);
+  const [docRotation, setDocRotation] = useState(0);
   const [actionReason, setActionReason] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [logs, setLogs] = useState([]);
+
+  useEffect(() => {
+    if (initialFilter) {
+      setSelectedStatus(initialFilter);
+    }
+  }, [initialFilter]);
 
   const loadMerchants = async () => {
     setIsLoading(true);
     setErrorMsg(null);
     try {
       const data = await merchantApi.getAll();
-      setMerchants(data);
+      setMerchants(Array.isArray(data) ? data : []);
     } catch (err) {
+      console.error('Failed to load merchants:', err);
       setErrorMsg(err.message || 'Failed to load merchants');
+      setMerchants([]);
     } finally {
       setIsLoading(false);
     }
@@ -85,6 +102,34 @@ export default function SuperAdminVerificationQueue() {
     }
   };
 
+  const handleOpenDocPreview = (merchant, url, title, docType) => {
+    setSelectedMerchant(merchant);
+    setPreviewDocInfo({
+      merchant,
+      url,
+      title: title || 'Verification Document Proof',
+      docType: docType || 'DOCUMENT'
+    });
+    setDocZoom(1);
+    setDocRotation(0);
+    setActionType('DOC_PREVIEW');
+  };
+
+  const handleDownloadDoc = (url, filename) => {
+    if (!url) return;
+    try {
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename || `billwise-doc-${Date.now()}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Download error:', err);
+      window.open(url, '_blank');
+    }
+  };
+
   const handleConfirmAction = async () => {
     if (!selectedMerchant || !actionType) return;
     setIsProcessing(true);
@@ -106,17 +151,24 @@ export default function SuperAdminVerificationQueue() {
     }
   };
 
-  const pendingCount = merchants.filter(m => m.status === 'PENDING_VERIFICATION').length;
-  const verifiedCount = merchants.filter(m => m.status === 'VERIFIED').length;
-  const rejectedCount = merchants.filter(m => m.status === 'REJECTED').length;
+  const merchantList = Array.isArray(merchants) ? merchants : [];
+  const pendingCount = merchantList.filter(m => m && m.status === 'PENDING_VERIFICATION').length;
+  const verifiedCount = merchantList.filter(m => m && m.status === 'VERIFIED').length;
+  const rejectedCount = merchantList.filter(m => m && m.status === 'REJECTED').length;
 
-  const filtered = merchants.filter(m => {
+  const filtered = merchantList.filter(m => {
+    if (!m) return false;
     const matchesStatus = selectedStatus === 'ALL' || m.status === selectedStatus;
+    const term = (searchTerm || '').toLowerCase().trim();
+    if (!term) return matchesStatus;
     const matchesSearch = 
-      m.tradeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.legalName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      m.gstin.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (m.adminUsername && m.adminUsername.toLowerCase().includes(searchTerm.toLowerCase()));
+      (m.tradeName && m.tradeName.toLowerCase().includes(term)) ||
+      (m.legalName && m.legalName.toLowerCase().includes(term)) ||
+      (m.gstin && m.gstin.toLowerCase().includes(term)) ||
+      (m.adminUsername && m.adminUsername.toLowerCase().includes(term)) ||
+      (m.pan && m.pan.toLowerCase().includes(term)) ||
+      (m.contactEmail && m.contactEmail.toLowerCase().includes(term)) ||
+      (m.state && m.state.toLowerCase().includes(term));
     return matchesStatus && matchesSearch;
   });
 
@@ -351,56 +403,142 @@ export default function SuperAdminVerificationQueue() {
                   </div>
 
                   {/* Uploaded Document Proofs */}
-                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-1.5 shadow-2xs">
+                  <div className="p-3.5 rounded-2xl bg-white border border-slate-200 space-y-2 shadow-2xs">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Submitted Proofs</span>
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       {m.gstCertificateUrl ? (
-                        <a
-                          href={m.gstCertificateUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-rose-600 hover:text-rose-700 font-bold text-xs flex items-center justify-between group"
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDocPreview(m, m.gstCertificateUrl, `${m.tradeName} — Form GST REG-06 Certificate`, 'GST_CERT')}
+                          className="w-full text-left p-1.5 rounded-xl bg-rose-50/70 hover:bg-rose-100/80 border border-rose-200/80 text-rose-800 text-xs font-bold flex items-center justify-between group transition cursor-pointer"
+                          title="Click to view full GST REG-06 Certificate"
                         >
-                          <span className="flex items-center gap-1">
-                            <FileText className="w-3.5 h-3.5" /> GST REG-06 Cert
+                          <span className="flex items-center gap-1.5 truncate">
+                            <FileText className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                            <span className="truncate">GST REG-06 Cert</span>
                           </span>
-                          <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-                        </a>
+                          <Eye className="w-3.5 h-3.5 text-rose-600 opacity-60 group-hover:opacity-100 shrink-0" />
+                        </button>
                       ) : (
-                        <span className="text-slate-400 text-[11px]">No GST cert</span>
+                        <span className="text-slate-400 text-[11px] block">No GST cert attached</span>
                       )}
 
                       {m.shopLicenseUrl && (
-                        <a
-                          href={m.shopLicenseUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-emerald-600 hover:text-emerald-700 font-bold text-xs flex items-center justify-between group"
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDocPreview(m, m.shopLicenseUrl, `${m.tradeName} — Shop / Trade License Proof`, 'SHOP_LICENSE')}
+                          className="w-full text-left p-1.5 rounded-xl bg-emerald-50/70 hover:bg-emerald-100/80 border border-emerald-200/80 text-emerald-800 text-xs font-bold flex items-center justify-between group transition cursor-pointer"
+                          title="Click to view Shop / Trade License"
                         >
-                          <span className="flex items-center gap-1">
-                            <Building2 className="w-3.5 h-3.5" /> Trade License
+                          <span className="flex items-center gap-1.5 truncate">
+                            <Building2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span className="truncate">Trade License</span>
                           </span>
-                          <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-                        </a>
+                          <Eye className="w-3.5 h-3.5 text-emerald-600 opacity-60 group-hover:opacity-100 shrink-0" />
+                        </button>
                       )}
 
                       {m.storefrontPhotoUrl && (
-                        <a
-                          href={m.storefrontPhotoUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 hover:text-blue-700 font-bold text-xs flex items-center justify-between group"
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDocPreview(m, m.storefrontPhotoUrl, `${m.tradeName} — Storefront & Shop Photo`, 'STOREFRONT')}
+                          className="w-full text-left p-1.5 rounded-xl bg-blue-50/70 hover:bg-blue-100/80 border border-blue-200/80 text-blue-800 text-xs font-bold flex items-center justify-between group transition cursor-pointer"
+                          title="Click to view Storefront & Shop Photo"
                         >
-                          <span className="flex items-center gap-1">
-                            <Store className="w-3.5 h-3.5" /> Shop Photo
+                          <span className="flex items-center gap-1.5 truncate">
+                            <Store className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                            <span className="truncate">Shop Photo</span>
                           </span>
-                          <ExternalLink className="w-3 h-3 opacity-60 group-hover:opacity-100" />
-                        </a>
+                          <Eye className="w-3.5 h-3.5 text-blue-600 opacity-60 group-hover:opacity-100 shrink-0" />
+                        </button>
                       )}
                     </div>
                   </div>
 
                 </div>
+
+                {/* Inline Document & Shop Photo Visual Gallery Preview */}
+                {(m.gstCertificateUrl || m.shopLicenseUrl || m.storefrontPhotoUrl) && (
+                  <div className="pt-2 border-t border-slate-100 space-y-2">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Visual Document Inspection Gallery (Click to inspect full-screen)
+                    </span>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                      
+                      {m.gstCertificateUrl && (
+                        <div 
+                          onClick={() => handleOpenDocPreview(m, m.gstCertificateUrl, `${m.tradeName} — Form GST REG-06 Certificate`, 'GST_CERT')}
+                          className="relative group rounded-2xl overflow-hidden border border-rose-200 bg-slate-900 cursor-pointer shadow-2xs hover:shadow-md transition aspect-4/3 flex items-center justify-center"
+                        >
+                          {m.gstCertificateUrl.startsWith('data:application/pdf') || m.gstCertificateUrl.endsWith('.pdf') ? (
+                            <div className="flex flex-col items-center justify-center p-3 text-white">
+                              <FileText className="w-8 h-8 text-rose-400 mb-1" />
+                              <span className="text-[10px] font-bold">PDF Certificate</span>
+                            </div>
+                          ) : (
+                            <img 
+                              src={m.gstCertificateUrl} 
+                              alt="GST Certificate" 
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300 opacity-90 group-hover:opacity-100" 
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex flex-col justify-end p-2 text-white">
+                            <div className="flex items-center justify-between text-[11px] font-bold">
+                              <span className="flex items-center gap-1"><FileText className="w-3 h-3 text-rose-400" /> GST REG-06</span>
+                              <Eye className="w-3.5 h-3.5 text-rose-300" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {m.shopLicenseUrl && (
+                        <div 
+                          onClick={() => handleOpenDocPreview(m, m.shopLicenseUrl, `${m.tradeName} — Shop / Trade License Proof`, 'SHOP_LICENSE')}
+                          className="relative group rounded-2xl overflow-hidden border border-emerald-200 bg-slate-900 cursor-pointer shadow-2xs hover:shadow-md transition aspect-4/3 flex items-center justify-center"
+                        >
+                          {m.shopLicenseUrl.startsWith('data:application/pdf') || m.shopLicenseUrl.endsWith('.pdf') ? (
+                            <div className="flex flex-col items-center justify-center p-3 text-white">
+                              <Building2 className="w-8 h-8 text-emerald-400 mb-1" />
+                              <span className="text-[10px] font-bold">PDF License</span>
+                            </div>
+                          ) : (
+                            <img 
+                              src={m.shopLicenseUrl} 
+                              alt="Shop License" 
+                              className="w-full h-full object-cover group-hover:scale-105 transition duration-300 opacity-90 group-hover:opacity-100" 
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex flex-col justify-end p-2 text-white">
+                            <div className="flex items-center justify-between text-[11px] font-bold">
+                              <span className="flex items-center gap-1"><Building2 className="w-3 h-3 text-emerald-400" /> Trade License</span>
+                              <Eye className="w-3.5 h-3.5 text-emerald-300" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {m.storefrontPhotoUrl && (
+                        <div 
+                          onClick={() => handleOpenDocPreview(m, m.storefrontPhotoUrl, `${m.tradeName} — Storefront & Shop Photo`, 'STOREFRONT')}
+                          className="relative group rounded-2xl overflow-hidden border border-blue-200 bg-slate-900 cursor-pointer shadow-2xs hover:shadow-md transition aspect-4/3 flex items-center justify-center"
+                        >
+                          <img 
+                            src={m.storefrontPhotoUrl} 
+                            alt="Storefront Photo" 
+                            className="w-full h-full object-cover group-hover:scale-105 transition duration-300 opacity-90 group-hover:opacity-100" 
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex flex-col justify-end p-2 text-white">
+                            <div className="flex items-center justify-between text-[11px] font-bold">
+                              <span className="flex items-center gap-1"><Store className="w-3 h-3 text-blue-400" /> Storefront Photo</span>
+                              <Eye className="w-3.5 h-3.5 text-blue-300" />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  </div>
+                )}
 
                 {/* Footer notes / rejection reasons */}
                 {m.rejectionReason && (
@@ -525,6 +663,162 @@ export default function SuperAdminVerificationQueue() {
                 ))
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Interactive Document & Storefront Photo Preview Modal */}
+      {actionType === 'DOC_PREVIEW' && previewDocInfo && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-2 sm:p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-3xl max-w-4xl w-full h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 text-white">
+            
+            {/* Modal Header & Controls */}
+            <div className="px-5 py-3.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-900/90">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                  {previewDocInfo.docType === 'STOREFRONT' ? <Store className="w-5 h-5" /> : previewDocInfo.docType === 'SHOP_LICENSE' ? <Building2 className="w-5 h-5" /> : <FileText className="w-5 h-5" />}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-100 truncate">
+                    {previewDocInfo.title}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 font-mono truncate">
+                    {previewDocInfo.merchant?.tradeName} &bull; GSTIN: {previewDocInfo.merchant?.gstin}
+                  </p>
+                </div>
+              </div>
+
+              {/* Toolbar Controls */}
+              <div className="flex items-center gap-1.5 shrink-0 bg-slate-800/80 p-1 rounded-xl border border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setDocZoom(prev => Math.max(0.5, prev - 0.25))}
+                  className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
+                  title="Zoom Out"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                
+                <span className="text-[11px] font-mono font-bold text-slate-300 px-1.5 select-none">
+                  {Math.round(docZoom * 100)}%
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setDocZoom(prev => Math.min(3, prev + 0.25))}
+                  className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setDocRotation(prev => (prev + 90) % 360)}
+                  className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer ml-1"
+                  title="Rotate 90°"
+                >
+                  <RotateCw className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setDocZoom(1); setDocRotation(0); }}
+                  className="px-2 py-1 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white text-[11px] font-bold transition cursor-pointer"
+                  title="Reset Zoom"
+                >
+                  1:1
+                </button>
+
+                <div className="w-px h-4 bg-slate-700 mx-1" />
+
+                <button
+                  type="button"
+                  onClick={() => handleDownloadDoc(previewDocInfo.url, `${previewDocInfo.merchant?.tradeName || 'doc'}-${previewDocInfo.docType}`)}
+                  className="p-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white transition cursor-pointer"
+                  title="Download File"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setActionType(null); setPreviewDocInfo(null); }}
+                  className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer"
+                  title="Close Preview"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Document Viewer Canvas */}
+            <div className="flex-1 bg-slate-950 p-4 overflow-auto flex items-center justify-center relative select-none">
+              {previewDocInfo.url ? (
+                previewDocInfo.url.startsWith('data:application/pdf') || previewDocInfo.url.endsWith('.pdf') ? (
+                  <iframe
+                    src={previewDocInfo.url}
+                    title="PDF Viewer"
+                    className="w-full h-full rounded-2xl bg-white border-0 shadow-inner"
+                  />
+                ) : (
+                  <div className="transition-transform duration-150 ease-out flex items-center justify-center min-h-full min-w-full">
+                    <img
+                      src={previewDocInfo.url}
+                      alt={previewDocInfo.title}
+                      style={{
+                        transform: `scale(${docZoom}) rotate(${docRotation}deg)`,
+                        transformOrigin: 'center center',
+                        transition: 'transform 0.15s ease-out'
+                      }}
+                      className="max-h-[75vh] max-w-full object-contain rounded-xl shadow-2xl border border-slate-800"
+                    />
+                  </div>
+                )
+              ) : (
+                <div className="text-center text-slate-500 text-xs">
+                  <FileText className="w-12 h-12 mx-auto mb-2 opacity-40" />
+                  No document content available.
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer Quick Actions */}
+            <div className="px-5 py-3 border-t border-slate-800 flex items-center justify-between bg-slate-900/90 text-xs">
+              <div className="text-slate-400 text-[11px]">
+                Status: <strong className="text-rose-400">{previewDocInfo.merchant?.status}</strong>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {previewDocInfo.merchant?.status === 'PENDING_VERIFICATION' && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenReject(previewDocInfo.merchant)}
+                      className="px-3.5 py-1.5 rounded-xl bg-rose-950/80 hover:bg-rose-900 text-rose-300 border border-rose-800 font-bold transition cursor-pointer"
+                    >
+                      Reject Proof
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenApprove(previewDocInfo.merchant)}
+                      className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-sm transition cursor-pointer"
+                    >
+                      Approve Merchant
+                    </button>
+                  </>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => { setActionType(null); setPreviewDocInfo(null); }}
+                  className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition cursor-pointer"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+
           </div>
         </div>
       )}

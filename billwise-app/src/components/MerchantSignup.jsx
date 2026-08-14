@@ -40,6 +40,7 @@ export default function MerchantSignup({
   onBackToLanding,
   initialEmail = '',
   initialName = '',
+  initialGoogleIdToken = '',
   isGoogleSignup = false
 }) {
   const [step, setStep] = useState(1);
@@ -49,10 +50,12 @@ export default function MerchantSignup({
   const [isSuccess, setIsSuccess] = useState(false);
   const [createdMerchant, setCreatedMerchant] = useState(null);
 
-  // Email OTP verification state (Pre-verified if signing up with Google)
-  const [emailOtp, setEmailOtp] = useState(isGoogleSignup ? 'GOOGLE_VERIFIED' : '');
+  // Google OAuth Verified ID Token & Email OTP state
+  const [googleIdToken, setGoogleIdToken] = useState(initialGoogleIdToken || '');
+  const isGoogleVerified = Boolean(isGoogleSignup && (initialGoogleIdToken || initialEmail));
+  const [emailOtp, setEmailOtp] = useState('');
   const [isOtpSent, setIsOtpSent] = useState(false);
-  const [isEmailVerified, setIsEmailVerified] = useState(Boolean(isGoogleSignup && initialEmail));
+  const [isEmailVerified, setIsEmailVerified] = useState(isGoogleVerified);
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpMessage, setOtpMessage] = useState(null);
   const [copiedOtp, setCopiedOtp] = useState(false);
@@ -78,6 +81,9 @@ export default function MerchantSignup({
     pincode: '',
     contactEmail: initialEmail || '',
     contactPhone: '',
+    taxpayerType: 'REGULAR',
+    turnoverSlab: 'UP_TO_1_5_CR',
+    filingFrequency: 'MONTHLY',
     gstCertificateUrl: '',
     gstCertFileName: '',
     shopLicenseUrl: '',
@@ -152,7 +158,7 @@ export default function MerchantSignup({
     try {
       const res = await authApi.sendSignupOtp(cleanEmail);
       setIsOtpSent(true);
-      setOtpMessage(res.message || "OTP code sent to email.");
+      setOtpMessage(res.message || "A 6-digit verification code has been dispatched to your email address.");
       setOtpCountdown(60);
     } catch (err) {
       setErrorMsg(err.message || "Failed to send OTP to email.");
@@ -234,9 +240,13 @@ export default function MerchantSignup({
         state: formData.state || gstinVal.stateName || 'Maharashtra',
         stateCode: formData.gstin.slice(0, 2),
         pincode: formData.pincode || '400001',
+        taxpayerType: formData.taxpayerType || 'REGULAR',
+        turnoverSlab: formData.turnoverSlab || 'UP_TO_1_5_CR',
+        filingFrequency: formData.filingFrequency || 'MONTHLY',
         contactEmail: formData.contactEmail,
         contactPhone: formData.contactPhone,
-        emailOtp: isGoogleSignup ? 'GOOGLE_VERIFIED' : (emailOtp || (isEmailVerified ? 'GOOGLE_VERIFIED' : '')),
+        emailOtp: emailOtp ? emailOtp.trim() : '',
+        googleIdToken: (isGoogleSignup && googleIdToken) ? googleIdToken : null,
         gstCertificateUrl: formData.gstCertificateUrl,
         shopLicenseUrl: formData.shopLicenseUrl || null,
         storefrontPhotoUrl: formData.storefrontPhotoUrl || null,
@@ -521,6 +531,70 @@ export default function MerchantSignup({
                 </div>
               </div>
 
+              {/* Turnover Slab & GST Scheme Selection */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-700 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-rose-600" />
+                    GST Scheme & Annual Turnover Bracket
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">Statutory Return Rules</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 mb-1 block">
+                      Previous FY Aggregate Turnover *
+                    </label>
+                    <select
+                      value={formData.turnoverSlab}
+                      onChange={(e) => {
+                        const slab = e.target.value;
+                        setFormData(prev => ({
+                          ...prev,
+                          turnoverSlab: slab,
+                          filingFrequency: slab === 'ABOVE_5_CR' ? 'MONTHLY' : prev.filingFrequency
+                        }));
+                      }}
+                      className="w-full px-3 py-2 rounded-xl bg-white border border-slate-200 text-slate-800 text-xs focus:border-rose-500 outline-none font-medium"
+                    >
+                      <option value="UP_TO_1_5_CR">Up to ₹1.5 Crore (Micro/Small)</option>
+                      <option value="1_5_TO_5_CR">₹1.5 Crore – ₹5 Crore (QRMP Eligible)</option>
+                      <option value="ABOVE_5_CR">Above ₹5 Crore (Mandatory Monthly)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 mb-1 block">
+                      GST Return Filing Frequency *
+                    </label>
+                    <select
+                      value={formData.filingFrequency}
+                      disabled={formData.turnoverSlab === 'ABOVE_5_CR'}
+                      onChange={(e) => setFormData({ ...formData, filingFrequency: e.target.value })}
+                      className={`w-full px-3 py-2 rounded-xl border text-xs outline-none font-medium ${
+                        formData.turnoverSlab === 'ABOVE_5_CR'
+                          ? 'bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed'
+                          : 'bg-white border-slate-200 text-slate-800 focus:border-rose-500'
+                      }`}
+                    >
+                      <option value="MONTHLY">Monthly (GSTR-1 by 11th, GSTR-3B by 20th)</option>
+                      <option value="QRMP_QUARTERLY">Quarterly (QRMP Scheme - Turnover ≤ ₹5 Cr)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {formData.turnoverSlab === 'ABOVE_5_CR' ? (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-lg">
+                    ⚠️ <strong>Statutory Mandate:</strong> Enterprises with turnover exceeding ₹5 Crore must file monthly GSTR-1 and GSTR-3B and submit annual GSTR-9/9C reconciliation.
+                  </p>
+                ) : (
+                  <p className="text-[10px] text-slate-500">
+                    💡 BillWise will automatically monitor your live sales in BillWise and notify you if your aggregate turnover crosses ₹5 Crore.
+                  </p>
+                )}
+              </div>
+
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wide text-slate-500 mb-1 block">
                   Registered Business Address *
@@ -614,6 +688,7 @@ export default function MerchantSignup({
                       onChange={(e) => {
                         setFormData({ ...formData, contactEmail: e.target.value });
                         setIsEmailVerified(false);
+                        setGoogleIdToken('');
                         setIsOtpSent(false);
                         setEmailOtp('');
                       }}
@@ -657,11 +732,15 @@ export default function MerchantSignup({
                     </div>
                     <div>
                       <h4 className="text-xs font-bold text-slate-900">
-                        {isEmailVerified ? 'Gmail / Email Verified' : 'Verify Email with 6-Digit OTP'}
+                        {isEmailVerified 
+                          ? (isGoogleSignup ? 'Google Account Pre-Verified' : 'Email OTP Verified')
+                          : 'Verify Email with 6-Digit OTP'}
                       </h4>
                       <p className="text-[10px] text-slate-500">
                         {isEmailVerified 
-                          ? 'Your email address has been verified for merchant ownership.' 
+                          ? (isGoogleSignup 
+                              ? 'Authoritatively verified via Google Identity Services token.' 
+                              : 'Your email address has been verified for merchant registration.') 
                           : 'A 6-digit verification code is required to register this business.'}
                       </p>
                     </div>

@@ -28,10 +28,14 @@ export default function App() {
     accountantVerified,
     username,
     fullName,
+    profilePhotoUrl,
     merchantTradeName,
     login,
     logout,
   } = useAuth();
+
+  // Compose a currentUser object for child components that need the full user context
+  const currentUser = isAuthenticated ? { username, fullName, role } : null;
 
   // Landing Page vs Login vs Signup for unauthenticated visitors
   const [unauthView, setUnauthView] = useState(() => {
@@ -152,6 +156,7 @@ export default function App() {
         totalInvoicesCount={invoices.length}
         username={username}
         fullName={fullName}
+        profilePhotoUrl={profilePhotoUrl}
         role={role}
         isSuperAdmin={isSuperAdmin}
         merchantTradeName={merchantTradeName}
@@ -172,9 +177,9 @@ export default function App() {
           </div>
         )}
 
-        {/* SuperAdmin Verification Queue Tab */}
-        {activeTab === 'verification' && isSuperAdmin && (
-          <SuperAdminVerificationQueue />
+        {/* SuperAdmin Verification Queue & All Merchants Ledger Tab */}
+        {(activeTab === 'verification' || activeTab === 'overview') && isSuperAdmin && (
+          <SuperAdminVerificationQueue initialFilter={activeTab === 'verification' ? 'PENDING_VERIFICATION' : 'ALL'} />
         )}
 
         {/* User Profile Tab */}
@@ -261,6 +266,8 @@ export default function App() {
       <AiCopilotDrawer 
         isOpen={isCopilotOpen}
         onClose={() => setIsCopilotOpen(false)}
+        currentUser={currentUser}
+        invoices={invoices}
       />
 
     </div>

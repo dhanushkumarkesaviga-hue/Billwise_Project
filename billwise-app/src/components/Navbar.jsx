@@ -33,6 +33,7 @@ export default function Navbar({
   totalInvoicesCount,
   username,
   fullName,
+  profilePhotoUrl,
   role,
   isSuperAdmin,
   merchantTradeName,
@@ -101,13 +102,13 @@ export default function Navbar({
               onOpenCopilot();
               setIsMobileOpen(false);
             }}
-            className="w-full flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-slate-50 hover:bg-rose-50/50 border border-slate-200/80 hover:border-rose-200 text-slate-700 hover:text-rose-700 text-xs font-bold transition shadow-2xs group cursor-pointer"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-sm transition hover:scale-[1.01] active:scale-[0.99] cursor-pointer group"
           >
-            <Bot className="w-4 h-4 text-rose-600 group-hover:scale-110 transition" />
-            <span>AI Assistant Copilot</span>
-            <span className="ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded bg-white text-slate-500 border border-slate-200">
+            <Sparkles className="w-4 h-4 text-emerald-400 group-hover:rotate-12 transition-transform shrink-0" />
+            <span>AI Tax Copilot</span>
+            <kbd className="ml-auto text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700 font-mono">
               Ctrl+K
-            </span>
+            </kbd>
           </button>
         </div>
 
@@ -118,31 +119,42 @@ export default function Navbar({
           </div>
 
           {/* SuperAdmin Queue */}
-          {isSuperAdmin && (
-            <button
-              onClick={() => handleTabClick('verification')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold transition ${
-                activeTab === 'verification'
-                  ? 'bg-rose-600 text-white shadow-sm shadow-rose-600/20'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <ShieldCheck className="w-4 h-4 shrink-0" />
-                <span>Merchant Queue</span>
-              </div>
-              {pendingVerificationCount > 0 && (
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                  activeTab === 'verification' ? 'bg-white text-rose-600' : 'bg-amber-100 text-amber-800'
-                }`}>
-                  {pendingVerificationCount}
-                </span>
-              )}
-            </button>
-          )}
+          {isSuperAdmin ? (
+            /* SUPER ADMIN MENU */
+            <>
+              <button
+                onClick={() => handleTabClick('verification')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold transition ${
+                  activeTab === 'verification'
+                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <ShieldCheck className={`w-4 h-4 shrink-0 ${activeTab === 'verification' ? 'text-rose-600' : 'text-slate-400'}`} />
+                  <span>KYC Queue</span>
+                </div>
+                {pendingVerificationCount > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500 text-white animate-pulse">
+                    {pendingVerificationCount}
+                  </span>
+                )}
+              </button>
 
-          {/* Standard Merchant Tabs */}
-          {!isSuperAdmin && (
+              <button
+                onClick={() => handleTabClick('overview')}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition ${
+                  activeTab === 'overview'
+                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold'
+                }`}
+              >
+                <PieChart className={`w-4 h-4 shrink-0 ${activeTab === 'overview' ? 'text-rose-600' : 'text-slate-400'}`} />
+                <span>All Merchants Ledger</span>
+              </button>
+            </>
+          ) : (
+            /* MERCHANT ADMIN & ACCOUNTANT MENU */
             <>
               <button
                 onClick={() => handleTabClick('overview')}
@@ -166,11 +178,13 @@ export default function Navbar({
               >
                 <div className="flex items-center gap-3">
                   <FileText className={`w-4 h-4 shrink-0 ${activeTab === 'invoices' ? 'text-rose-600' : 'text-slate-400'}`} />
-                  <span>Invoices</span>
+                  <span>Invoices & OCR</span>
                 </div>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200/60">
-                  {totalInvoicesCount}
-                </span>
+                {totalInvoicesCount > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                    {totalInvoicesCount}
+                  </span>
+                )}
               </button>
 
               <button
@@ -194,7 +208,7 @@ export default function Navbar({
                 }`}
               >
                 <CalendarClock className={`w-4 h-4 shrink-0 ${activeTab === 'deadlines' ? 'text-rose-600' : 'text-slate-400'}`} />
-                <span>Deadlines</span>
+                <span>Tax Calendar</span>
               </button>
 
               <button
@@ -247,9 +261,17 @@ export default function Navbar({
           className="flex items-center gap-3 p-2 rounded-2xl hover:bg-slate-100/80 border border-transparent hover:border-slate-200 cursor-pointer transition"
           title="View & Edit Profile"
         >
-          <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 font-bold text-sm shrink-0">
-            {(fullName || username || 'U').charAt(0).toUpperCase()}
-          </div>
+          {profilePhotoUrl ? (
+            <img
+              src={profilePhotoUrl}
+              alt={fullName || username}
+              className="w-9 h-9 rounded-xl object-cover border border-rose-300 shadow-2xs shrink-0"
+            />
+          ) : (
+            <div className="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-700 font-bold text-sm shrink-0">
+              {(fullName || username || 'U').charAt(0).toUpperCase()}
+            </div>
+          )}
           <div className="leading-tight text-left min-w-0 flex-1">
             <div className="text-xs font-bold text-slate-900 truncate">
               {fullName || username}

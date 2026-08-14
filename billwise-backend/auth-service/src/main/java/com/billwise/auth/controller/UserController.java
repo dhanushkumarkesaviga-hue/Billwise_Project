@@ -26,6 +26,15 @@ public class UserController {
         return ResponseEntity.ok(userService.getProfile(principal.getUsername()));
     }
 
+    @PostMapping("/me/send-email-change-otp")
+    public ResponseEntity<Map<String, Object>> sendEmailChangeOtp(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody Map<String, String> body
+    ) {
+        String newEmail = body.get("newEmail");
+        return ResponseEntity.ok(userService.sendEmailChangeOtp(principal.getUsername(), newEmail));
+    }
+
     @PutMapping("/me")
     public ResponseEntity<UserProfileDto> updateMyProfile(
             @AuthenticationPrincipal UserPrincipal principal,

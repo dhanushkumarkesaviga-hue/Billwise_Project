@@ -18,11 +18,19 @@ import {
   Phone,
   AtSign,
   KeyRound,
+  Key,
   ArrowLeft,
   Copy,
   Check,
   HelpCircle,
-  Shield
+  Shield, 
+  Clock, 
+  RefreshCw, 
+  Send,
+  X,
+  ExternalLink,
+  Zap,
+  Globe
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api';
@@ -92,45 +100,40 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
   const [localError, setLocalError] = useState(null);
   const [loginSuccessBanner, setLoginSuccessBanner] = useState(null);
 
-  // Google Sign In state & Pre-fill
-  const [showGoogleModal, setShowGoogleModal] = useState(false);
-  const [googleSignupData, setGoogleSignupData] = useState({ email: '', name: '', isGoogle: false });
-  const [customGoogleEmail, setCustomGoogleEmail] = useState('');
-  const [customGoogleName, setCustomGoogleName] = useState('');
-  const [customGoogleRole, setCustomGoogleRole] = useState('ADMIN');
+  // Google Sign In state & Pre-fill (Real Google Identity Services & Fallback Authenticator)
+  const [googleSignupData, setGoogleSignupData] = useState({ email: '', name: '', idToken: '', isGoogle: false });
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [gsiLoaded, setGsiLoaded] = useState(false);
+  const [showGoogleModal, setShowGoogleModal] = useState(false);
+  const [modalEmail, setModalEmail] = useState('');
+  const [modalName, setModalName] = useState('');
+  const [modalIdToken, setModalIdToken] = useState('');
+  const [modalTab, setModalTab] = useState('quick'); // 'quick' | 'custom' | 'token'
   const googleBtnRef = useRef(null);
 
-  // Handle OAuth2 Redirect Callbacks from Backend (e.g. /oauth2/authorization/google)
+  // Direct Email OTP Password Reset State (for Admin, SuperAdmin, & Accountants)
+  const [resetStep, setResetStep] = useState('ENTER_IDENTIFIER'); // 'ENTER_IDENTIFIER' | 'ENTER_OTP_AND_PASSWORD' | 'ADMIN_APPROVAL_MODE'
+  const [resetIdentifier, setResetIdentifier] = useState('');
+  const [resetOtp, setResetOtp] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [resetMaskedEmail, setResetMaskedEmail] = useState('');
+  const [resetDevOtp, setResetDevOtp] = useState(null);
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [resetSuccessMsg, setResetSuccessMsg] = useState(null);
+  const [resetCountdown, setResetCountdown] = useState(0);
+
+  // Resend Countdown Timer
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const oauthToken = params.get('oauth_token');
-    const oauthNewUser = params.get('oauth_new_user');
-    const errorParam = params.get('error');
-
-    if (oauthToken) {
-      loginWithToken(oauthToken, {
-        username: params.get('username'),
-        email: params.get('email'),
-        fullName: params.get('fullName'),
-        role: params.get('role'),
-        merchantId: params.get('merchantId')
-      });
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (oauthNewUser === 'true') {
-      const email = params.get('email') || '';
-      const name = params.get('name') || '';
-      setGoogleSignupData({ email, name, isGoogle: true });
-      setView('merchant_signup');
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (errorParam) {
-      setLocalError(decodeURIComponent(errorParam));
-      window.history.replaceState({}, document.title, window.location.pathname);
+    let timer;
+    if (resetCountdown > 0) {
+      timer = setTimeout(() => setResetCountdown((c) => c - 1), 1000);
     }
-  }, [loginWithToken]);
+    return () => clearTimeout(timer);
+  }, [resetCountdown]);
 
-  // Forgot Password Flow State (Admin Approval Flow)
+  // Legacy Admin Approval Ticket Flow State (Fallback for Staff)
   const [forgotIdentifier, setForgotIdentifier] = useState('');
   const [forgotPhone, setForgotPhone] = useState('');
   const [forgotReason, setForgotReason] = useState('');
@@ -154,83 +157,84 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
     role: 'ACCOUNTANT'
   });
   const [regSuccessMsg, setRegSuccessMsg] = useState(null);
+  const [copiedOtp, setCopiedOtp] = useState(false);
+  const [forgotOtp, setForgotOtp] = useState('');
 
-  const handleGoogleAuth = useCallback(async (googleAccount, idToken = null) => {
+  // Core Google Login Dispatcher
+  const authenticateWithGoogle = useCallback(async (googlePayloadOrEmail, optionalName) => {
     setIsGoogleLoading(true);
     setLocalError(null);
+    setShowGoogleModal(false);
     try {
-      const res = await googleLogin({
-        email: googleAccount.email,
-        name: googleAccount.name || googleAccount.email.split('@')[0],
-        googleId: googleAccount.googleId || `google_${googleAccount.email.replace(/[^a-zA-Z0-9]/g, '_')}`,
-        avatar: googleAccount.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
-        role: googleAccount.role || 'ADMIN',
-        idToken: idToken || null,
-        adminUsername: googleAccount.adminUsername || null
-      });
-      setShowGoogleModal(false);
+      let payload;
+      if (typeof googlePayloadOrEmail === 'object' && googlePayloadOrEmail !== null && googlePayloadOrEmail.idToken) {
+        payload = googlePayloadOrEmail;
+      } else {
+        const cleanEmail = (typeof googlePayloadOrEmail === 'string' ? googlePayloadOrEmail : modalEmail).trim().toLowerCase();
+        if (!cleanEmail || !cleanEmail.includes('@')) {
+          throw new Error('Please enter a valid Google email address.');
+        }
+        const cleanName = optionalName || modalName || cleanEmail.split('@')[0];
+        // Create structured simulated Google Identity token
+        const devTokenObj = {
+          email: cleanEmail,
+          name: cleanName,
+          sub: 'google_' + Math.abs(cleanEmail.split('').reduce((a, b) => ((a << 5) - a) + b.charCodeAt(0), 0)),
+          picture: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(cleanName || cleanEmail)}`,
+          email_verified: true
+        };
+        payload = {
+          idToken: JSON.stringify(devTokenObj),
+          email: cleanEmail,
+          name: cleanName,
+          role: 'ADMIN'
+        };
+      }
 
+      const res = await googleLogin(payload);
       if (res && (res.isNewUser || !res.token)) {
-        // Merchant Verification Guardrail: Route new Google accounts to KYC verification signup
+        // Unregistered Google user -> route to KYC merchant registration with verified token
         setGoogleSignupData({
-          email: res.email || googleAccount.email,
-          name: res.fullName || googleAccount.name || '',
+          email: res.email || (payload.email || ''),
+          name: res.fullName || (payload.name || ''),
+          idToken: payload.idToken,
           isGoogle: true
         });
         setView('merchant_signup');
       }
     } catch (err) {
-      console.warn("Google Auth notice:", err);
-      // If user is new / not yet registered, immediately open Merchant Signup
-      setShowGoogleModal(false);
-      setGoogleSignupData({
-        email: googleAccount.email,
-        name: googleAccount.name || googleAccount.email.split('@')[0],
-        isGoogle: true
-      });
-      setView('merchant_signup');
+      console.warn("Google authentication error:", err);
+      setLocalError(err.message || 'Google authentication failed. Please try again or sign in with your password.');
     } finally {
       setIsGoogleLoading(false);
     }
-  }, [googleLogin]);
+  }, [googleLogin, modalEmail, modalName]);
 
-  // Google Identity Services (GIS) Credential Callback
+  // Real Google Identity Services (GIS) Credential Callback
   const handleGoogleCredentialResponse = useCallback(async (response) => {
     if (!response || !response.credential) return;
-    setIsGoogleLoading(true);
-    setLocalError(null);
-    try {
-      const payload = decodeJwtResponse(response.credential);
-      if (!payload || !payload.email) {
-        throw new Error('Could not extract verified email from Google Sign-In.');
-      }
-      await handleGoogleAuth({
-        email: payload.email,
-        name: payload.name || payload.email.split('@')[0],
-        avatar: payload.picture || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80',
-        googleId: payload.sub,
-        role: 'ADMIN'
-      }, response.credential);
-    } catch (err) {
-      setLocalError(err.message || 'Google authentication failed');
-      setIsGoogleLoading(false);
-    }
-  }, [handleGoogleAuth]);
+    await authenticateWithGoogle({ idToken: response.credential });
+  }, [authenticateWithGoogle]);
+
+  const gsiInitializedRef = React.useRef(false);
 
   // Initialize Google Identity Services SDK (if valid Google Cloud Client ID is configured)
   useEffect(() => {
     if (!hasValidGoogleClientId) return;
 
-    const initGsi = () => {
+    const setupGoogleSignIn = () => {
       if (window.google?.accounts?.id) {
         try {
-          window.google.accounts.id.initialize({
-            client_id: GOOGLE_CLIENT_ID,
-            callback: handleGoogleCredentialResponse,
-            auto_select: false,
-            cancel_on_tap_outside: true
-          });
-          setGsiLoaded(true);
+          if (!gsiInitializedRef.current) {
+            window.google.accounts.id.initialize({
+              client_id: GOOGLE_CLIENT_ID,
+              callback: handleGoogleCredentialResponse,
+              auto_select: false,
+              cancel_on_tap_outside: true
+            });
+            gsiInitializedRef.current = true;
+            setGsiLoaded(true);
+          }
 
           if (googleBtnRef.current) {
             window.google.accounts.id.renderButton(googleBtnRef.current, {
@@ -238,38 +242,43 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
               size: 'large',
               type: 'standard',
               text: 'signin_with',
+              shape: 'rectangular',
               logo_alignment: 'left',
               width: 340
             });
           }
-          // Optionally display Google One-Tap
-          try {
-            window.google.accounts.id.prompt();
-          } catch (e) {}
         } catch (e) {
           console.warn('GIS initialization notice:', e);
         }
+        return true;
       }
+      return false;
     };
 
-    initGsi();
-    const interval = setInterval(() => {
-      if (window.google?.accounts?.id) {
-        initGsi();
-        clearInterval(interval);
-      }
-    }, 300);
-
-    return () => clearInterval(interval);
+    if (!setupGoogleSignIn()) {
+      const interval = setInterval(() => {
+        if (setupGoogleSignIn()) {
+          clearInterval(interval);
+        }
+      }, 300);
+      return () => clearInterval(interval);
+    }
   }, [hasValidGoogleClientId, handleGoogleCredentialResponse, view]);
 
   const triggerGoogleSignIn = () => {
     setLocalError(null);
-    setShowGoogleModal(true);
-    if (window.google?.accounts?.id && hasValidGoogleClientId) {
+    if (window.google?.accounts?.id) {
       try {
-        window.google.accounts.id.prompt();
-      } catch (e) {}
+        window.google.accounts.id.prompt((notification) => {
+          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+            setShowGoogleModal(true);
+          }
+        });
+      } catch (e) {
+        setShowGoogleModal(true);
+      }
+    } else {
+      setShowGoogleModal(true);
     }
   };
 
@@ -283,18 +292,74 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
     }
   };
 
-  const handleCustomGoogleSubmit = async (e) => {
-    e.preventDefault();
-    if (!customGoogleEmail || !customGoogleEmail.includes('@')) {
-      setLocalError('Please enter a valid Gmail address.');
+  // ========================================================
+  // EMAIL OTP PASSWORD RESET FLOW (ADMIN, SUPERADMIN, STAFF)
+  // ========================================================
+  const handleSendResetOtp = async (e) => {
+    if (e) e.preventDefault();
+    setLocalError(null);
+    setResetSuccessMsg(null);
+
+    const cleanIdentifier = (resetIdentifier || username).trim();
+    if (!cleanIdentifier) {
+      setLocalError('Please enter your registered Username or Email address.');
       return;
     }
-    await handleGoogleAuth({
-      email: customGoogleEmail.toLowerCase().trim(),
-      name: customGoogleName.trim() || customGoogleEmail.split('@')[0],
-      role: 'ADMIN',
-      adminUsername: null
-    });
+
+    setIsSendingOtp(true);
+    try {
+      const resp = await authApi.forgotPassword(cleanIdentifier);
+      setResetIdentifier(cleanIdentifier);
+      const masked = resp.emailMasked || resp.maskedEmail || cleanIdentifier;
+      setResetMaskedEmail(masked);
+      setResetDevOtp(resp.devOtp || resp.devOtpCode || null);
+      setResetStep('ENTER_OTP_AND_PASSWORD');
+      setResetCountdown(60);
+      setResetSuccessMsg(resp.message || `Verification OTP sent to ${masked}`);
+    } catch (err) {
+      setLocalError(err.message || 'Could not find account or dispatch verification code.');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleResetPasswordSubmit = async (e) => {
+    e.preventDefault();
+    setLocalError(null);
+    setResetSuccessMsg(null);
+
+    if (!resetOtp.trim()) {
+      setLocalError('Please enter the 6-digit verification code (OTP).');
+      return;
+    }
+
+    if (resetNewPassword.length < 6) {
+      setLocalError('New password must be at least 6 characters.');
+      return;
+    }
+
+    if (resetNewPassword !== resetConfirmPassword) {
+      setLocalError('Passwords do not match. Please re-enter.');
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      await authApi.resetPassword(resetIdentifier.trim(), resetOtp.trim(), resetNewPassword);
+      setLoginSuccessBanner('Password reset successful! Please sign in with your new password.');
+      setUsername(resetIdentifier.trim());
+      setPassword(resetNewPassword);
+      setView('login');
+      // Reset state
+      setResetStep('ENTER_IDENTIFIER');
+      setResetOtp('');
+      setResetNewPassword('');
+      setResetConfirmPassword('');
+    } catch (err) {
+      setLocalError(err.message || 'Invalid or expired OTP code.');
+    } finally {
+      setIsResettingPassword(false);
+    }
   };
 
   // Forgot Password: Submit Request to Admin
@@ -391,11 +456,12 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
       <MerchantSignup
         onSwitchToLogin={() => {
           setView('login');
-          setGoogleSignupData({ email: '', name: '', isGoogle: false });
+          setGoogleSignupData({ email: '', name: '', idToken: '', isGoogle: false });
         }}
         onBackToLanding={onBackToLanding}
         initialEmail={googleSignupData.email}
         initialName={googleSignupData.name}
+        initialGoogleIdToken={googleSignupData.idToken}
         isGoogleSignup={googleSignupData.isGoogle}
       />
     );
@@ -403,106 +469,6 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 py-8 relative">
-      
-      {/* GOOGLE SIGN IN MODAL */}
-      {showGoogleModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-white border border-slate-200 flex items-center justify-center shadow-xs">
-                  <GoogleIcon className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-extrabold text-slate-900">Sign In with Google</h3>
-                  <p className="text-xs text-slate-500">1-Click Admin Authentication (Zero Typing)</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowGoogleModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-6 space-y-5">
-              {/* Google Native One-Tap Trigger / GSI */}
-              <div className="p-4 rounded-2xl bg-gradient-to-br from-rose-50 to-orange-50/40 border border-rose-100 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                    <ShieldCheck className="w-4 h-4 text-rose-600" />
-                    <span>Official Google Account Chooser</span>
-                  </div>
-                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-rose-600 text-white font-bold uppercase tracking-wider">
-                    Instant
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  Sign in instantly with your verified Google Admin account without typing passwords or OTPs.
-                </p>
-
-                <div className="flex flex-col items-center justify-center pt-1">
-                  <div ref={googleBtnRef} className="min-h-[40px] flex items-center justify-center" />
-                </div>
-              </div>
-
-              {/* Enter Official Business Gmail */}
-              <div className="pt-2 space-y-3">
-                <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center justify-between">
-                  <span>Or Enter Your Business Gmail:</span>
-                  <span className="text-[10px] text-rose-600 font-bold">Secure Google Authentication</span>
-                </div>
-                <form onSubmit={handleCustomGoogleSubmit} className="space-y-2.5">
-                  <div className="relative">
-                    <Mail className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-                    <input
-                      type="email"
-                      required
-                      placeholder="e.g. newmerchant@gmail.com"
-                      value={customGoogleEmail}
-                      onChange={(e) => setCustomGoogleEmail(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none font-medium"
-                    />
-                  </div>
-                  <div className="relative">
-                    <User className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Full Name / Proprietor Name"
-                      value={customGoogleName}
-                      onChange={(e) => setCustomGoogleName(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none font-medium"
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={isGoogleLoading}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition cursor-pointer disabled:opacity-60"
-                  >
-                    <GoogleIcon className="w-4 h-4" />
-                    <span>Continue with Gmail</span>
-                    <ArrowRight className="w-3.5 h-3.5 ml-1" />
-                  </button>
-                  <p className="text-[10px] text-slate-500 text-center leading-normal">
-                    ✨ If this Gmail is new, you will instantly be taken to the <strong>New Merchant Creation Page</strong> with verified email and zero OTP delay.
-                  </p>
-                </form>
-              </div>
-
-              {isGoogleLoading && (
-                <div className="p-3 rounded-xl bg-slate-900 text-white text-xs font-medium flex items-center justify-center gap-2 animate-pulse">
-                  <GoogleIcon className="w-4 h-4 animate-spin" />
-                  <span>Authenticating with Google & routing to account…</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-
       <div className="w-full max-w-md space-y-6">
 
         {onBackToLanding && (
@@ -606,24 +572,21 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
                 <p className="text-xs text-slate-500">Use your Google Account or Username</p>
               </div>
 
-              {/* Prominent Google Sign-In Button */}
-              <button
-                type="button"
-                id="google-signin-btn"
-                disabled={isGoogleLoading}
-                onClick={triggerGoogleSignIn}
-                className="w-full flex items-center justify-center gap-3 px-5 py-3.5 rounded-2xl border-2 border-slate-200 hover:border-slate-300 bg-white hover:bg-slate-50 text-slate-800 font-bold text-sm shadow-xs hover:shadow-md transition group cursor-pointer"
-              >
-                <GoogleIcon className="w-5 h-5 shrink-0" />
-                <span className="text-slate-800 group-hover:text-slate-900 font-extrabold text-sm">
-                  {isGoogleLoading ? 'Signing in with Google…' : 'Sign in with Google'}
-                </span>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold ml-auto uppercase tracking-wide border border-slate-200">
-                  Fast Sign In
-                </span>
-              </button>
+              {/* Real Google Identity Services (GIS) Button */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-center min-h-[44px]">
+                  <div ref={googleBtnRef} className="w-full flex items-center justify-center" />
+                </div>
 
-              <div className="relative flex items-center justify-center">
+                {isGoogleLoading && (
+                  <div className="p-2.5 rounded-xl bg-slate-900 text-white text-xs font-medium flex items-center justify-center gap-2 animate-pulse">
+                    <GoogleIcon className="w-4 h-4 animate-spin" />
+                    <span>Verifying Google token with server…</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="relative flex items-center justify-center pt-1">
                 <div className="border-t border-slate-200 w-full" />
                 <span className="bg-white px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   OR SIGN IN WITH USERNAME
@@ -657,11 +620,12 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
                       type="button"
                       onClick={() => {
                         setView('forgot_password');
-                        setForgotStep(1);
-                        setForgotIdentifier(username || '');
+                        setResetStep('ENTER_IDENTIFIER');
+                        setResetIdentifier(username || '');
                         setLocalError(null);
+                        setResetSuccessMsg(null);
                       }}
-                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline transition"
+                      className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline transition cursor-pointer"
                     >
                       Forgot password?
                     </button>
@@ -741,22 +705,39 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
             </div>
           )}
 
-          {/* VIEW 2: FORGOT PASSWORD (SUBMIT REQUEST TO ADMIN FOR APPROVAL) */}
+          {/* VIEW 2: FORGOT PASSWORD (EMAIL OTP VERIFICATION FLOW FOR ADMIN, SUPERADMIN & USERS) */}
           {view === 'forgot_password' && (
             <div className="space-y-4 animate-in fade-in">
               <div className="text-center space-y-1">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[11px] font-bold">
-                  <Shield className="w-3.5 h-3.5 text-amber-600" />
-                  Admin-Approved Password Reset
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
+                  <KeyRound className="w-3.5 h-3.5 text-rose-600" />
+                  Email OTP Password Reset
                 </div>
-                <h2 className="text-lg font-extrabold text-slate-900">Forgot Your Password?</h2>
+                <h2 className="text-lg font-extrabold text-slate-900">Reset Your Password</h2>
                 <p className="text-xs text-slate-500">
-                  Submit a reset request to your shop Admin for verification and approval.
+                  {resetStep === 'ENTER_IDENTIFIER'
+                    ? 'Enter your registered username or email to receive a 6-digit verification code.'
+                    : `Enter the 6-digit code sent to ${resetMaskedEmail || 'your email'} and set your new password.`}
                 </p>
               </div>
 
-              {!forgotSubmitted ? (
-                <form onSubmit={handleForgotRequestSubmit} className="space-y-3">
+              {localError && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs px-3.5 py-2.5 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{localError}</span>
+                </div>
+              )}
+
+              {resetSuccessMsg && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-800 text-xs px-3.5 py-2.5 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{resetSuccessMsg}</span>
+                </div>
+              )}
+
+              {/* STEP 1: ENTER USERNAME OR EMAIL */}
+              {resetStep === 'ENTER_IDENTIFIER' && (
+                <form onSubmit={handleSendResetOtp} className="space-y-3.5">
                   <div>
                     <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
                       Username or Registered Email *
@@ -766,17 +747,77 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
                       <input
                         type="text"
                         required
-                        placeholder="e.g. accountant or user@gmail.com"
-                        value={forgotIdentifier}
-                        onChange={(e) => setForgotIdentifier(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
+                        placeholder="e.g. admin or superadmin or email@billwise.app"
+                        value={resetIdentifier || username}
+                        onChange={(e) => {
+                          setResetIdentifier(e.target.value);
+                          setLocalError(null);
+                        }}
+                        className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 focus:bg-white outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSendingOtp}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition disabled:opacity-60 cursor-pointer"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    {isSendingOtp ? 'Sending 6-Digit OTP…' : 'Send Verification Code (OTP)'}
+                  </button>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setView('login');
+                        setLocalError(null);
+                        setResetSuccessMsg(null);
+                      }}
+                      className="text-xs text-slate-500 hover:text-slate-800 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" /> Back to Sign In
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setResetStep('ADMIN_APPROVAL_MODE')}
+                      className="text-[11px] text-slate-400 hover:text-rose-600 font-medium cursor-pointer"
+                    >
+                      Shop Admin Ticket?
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* STEP 2: ENTER 6-DIGIT OTP & NEW PASSWORD */}
+              {resetStep === 'ENTER_OTP_AND_PASSWORD' && (
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-3.5">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                      6-Digit Verification Code (OTP) *
+                    </label>
+                    <div className="relative">
+                      <Key className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        placeholder="••••••"
+                        value={resetOtp}
+                        onChange={(e) => {
+                          setResetOtp(e.target.value.replace(/\D/g, ''));
+                          setLocalError(null);
+                        }}
+                        className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-base font-mono tracking-widest text-center font-bold focus:border-rose-500 focus:bg-white outline-none"
                       />
                     </div>
                   </div>
 
                   <div>
                     <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
-                      Desired New Password (min 6 characters) *
+                      New Password (min 6 characters) *
                     </label>
                     <div className="relative">
                       <Lock className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
@@ -784,10 +825,13 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
                         type={showPassword ? 'text' : 'password'}
                         required
                         minLength={6}
-                        placeholder="Enter desired new password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full pl-8 pr-9 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none font-medium"
+                        placeholder="Enter new password"
+                        value={resetNewPassword}
+                        onChange={(e) => {
+                          setResetNewPassword(e.target.value);
+                          setLocalError(null);
+                        }}
+                        className="w-full pl-8 pr-9 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 focus:bg-white outline-none font-medium"
                       />
                       <button
                         type="button"
@@ -810,149 +854,148 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
                         type="password"
                         required
                         minLength={6}
-                        placeholder="Re-enter desired new password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none font-medium"
+                        placeholder="Re-enter new password"
+                        value={resetConfirmPassword}
+                        onChange={(e) => {
+                          setResetConfirmPassword(e.target.value);
+                          setLocalError(null);
+                        }}
+                        className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 focus:bg-white outline-none font-medium"
                       />
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
-                      Contact Phone (for identity verification)
-                    </label>
-                    <div className="relative">
-                      <Phone className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-                      <input
-                        type="tel"
-                        placeholder="e.g. +91 98765 43210"
-                        value={forgotPhone}
-                        onChange={(e) => setForgotPhone(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
-                      />
-                    </div>
+                  {/* Resend OTP Row */}
+                  <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+                    <span>Didn't receive the email code?</span>
+                    {resetCountdown > 0 ? (
+                      <span className="font-mono text-rose-600 font-bold text-[11px] flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> Resend in {resetCountdown}s
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleSendResetOtp}
+                        disabled={isSendingOtp}
+                        className="font-bold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Resend OTP
+                      </button>
+                    )}
                   </div>
-
-                  <div>
-                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
-                      Reason / Note for Admin
-                    </label>
-                    <textarea
-                      rows={2}
-                      placeholder="e.g. Forgot previous password, requesting urgent password reset approval"
-                      value={forgotReason}
-                      onChange={(e) => setForgotReason(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
-                    />
-                  </div>
-
-                  {localError && (
-                    <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs px-3 py-2.5 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
-                      <span>{localError}</span>
-                    </div>
-                  )}
 
                   <button
                     type="submit"
-                    disabled={forgotLoading}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition disabled:opacity-60"
+                    disabled={isResettingPassword}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition disabled:opacity-60 cursor-pointer"
                   >
-                    <ShieldCheck className="w-4 h-4" />
-                    {forgotLoading ? 'Submitting Request…' : 'Submit Password Reset Request to Admin'}
+                    <CheckCircle2 className="w-4 h-4" />
+                    {isResettingPassword ? 'Resetting Password…' : 'Reset Password & Sign In'}
                   </button>
 
-                  <div className="flex items-center justify-between pt-1">
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
                     <button
                       type="button"
-                      onClick={() => { setView('login'); setLocalError(null); }}
-                      className="text-xs text-slate-500 hover:text-slate-800 font-bold flex items-center gap-1"
+                      onClick={() => setResetStep('ENTER_IDENTIFIER')}
+                      className="text-xs text-slate-500 hover:text-slate-800 font-bold flex items-center gap-1 cursor-pointer"
                     >
-                      <ArrowLeft className="w-3.5 h-3.5" /> Back to Sign In
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleCheckResetStatus}
-                      className="text-xs text-rose-600 hover:text-rose-700 font-bold"
-                    >
-                      Check Status
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <div className="space-y-4 text-center">
-                  <div className="w-12 h-12 bg-amber-50 border border-amber-200 text-amber-600 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-                    <Clock className="w-6 h-6" />
-                  </div>
-
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
-                      Status: Pending Admin Approval
-                    </span>
-                    <h3 className="text-base font-extrabold text-slate-900 mt-2">
-                      Reset Request Submitted!
-                    </h3>
-                    <p className="text-xs text-slate-600 leading-relaxed max-w-sm mx-auto">
-                      Your password reset request for <strong className="text-slate-900">{forgotIdentifier}</strong> has been routed to your shop Admin (<strong className="text-rose-600 font-mono">@{assignedAdmin}</strong>).
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-left text-xs space-y-1.5">
-                    <p className="font-bold text-slate-900 flex items-center gap-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-rose-600" />
-                      What happens next?
-                    </p>
-                    <p className="text-[11px] text-slate-600 leading-relaxed">
-                      Your shop Admin will review and click <strong>"Approve Password Reset"</strong> in their Accountant Management panel. Once approved, your new password is automatically active!
-                    </p>
-                  </div>
-
-                  {requestStatusData && (
-                    <div className={`p-3 rounded-xl text-xs font-semibold border ${
-                      requestStatusData.status === 'APPROVED'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
-                        : requestStatusData.status === 'REJECTED'
-                        ? 'bg-rose-50 border-rose-300 text-rose-800'
-                        : 'bg-amber-50 border-amber-300 text-amber-800'
-                    }`}>
-                      <div className="flex items-center justify-center gap-1.5 mb-1 font-bold">
-                        {requestStatusData.status === 'APPROVED' ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        ) : (
-                          <Clock className="w-4 h-4 text-amber-600" />
-                        )}
-                        <span>Status: {requestStatusData.status}</span>
-                      </div>
-                      <p className="text-[11px]">{requestStatusData.message}</p>
-                    </div>
-                  )}
-
-                  <div className="flex flex-col sm:flex-row gap-2 pt-2">
-                    <button
-                      type="button"
-                      disabled={checkingStatus}
-                      onClick={handleCheckResetStatus}
-                      className="flex-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition flex items-center justify-center gap-1"
-                    >
-                      {checkingStatus ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                      Check Approval Status
+                      <ArrowLeft className="w-3.5 h-3.5" /> Change Email/Username
                     </button>
 
                     <button
                       type="button"
                       onClick={() => {
                         setView('login');
-                        setUsername(forgotIdentifier.trim());
-                        setPassword(newPassword);
+                        setLocalError(null);
+                        setResetSuccessMsg(null);
                       }}
-                      className="flex-1 py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition"
+                      className="text-xs text-rose-600 hover:text-rose-700 font-bold cursor-pointer"
                     >
-                      Go to Sign In
+                      Back to Sign In
                     </button>
                   </div>
-                </div>
+                </form>
+              )}
+
+              {/* FALLBACK: ADMIN TICKET APPROVAL (FOR STAFF ACCOUNTANTS) */}
+              {resetStep === 'ADMIN_APPROVAL_MODE' && (
+                <form onSubmit={handleForgotRequestSubmit} className="space-y-3">
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                      Staff Username or Email *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. priya_acc"
+                      value={forgotIdentifier}
+                      onChange={(e) => setForgotIdentifier(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                      Desired New Password *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      placeholder="••••••••"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                      Confirm New Password *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      placeholder="••••••••"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                      Reason / Note for Shop Admin
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder="e.g. Urgent reset approval requested"
+                      value={forgotReason}
+                      onChange={(e) => setForgotReason(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={forgotLoading}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs shadow-sm transition disabled:opacity-60 cursor-pointer"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    {forgotLoading ? 'Submitting…' : 'Submit Reset Request to Admin'}
+                  </button>
+
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => setResetStep('ENTER_IDENTIFIER')}
+                      className="text-xs text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" /> Use Direct Email OTP Instead
+                    </button>
+                  </div>
+                </form>
               )}
             </div>
           )}
@@ -1104,6 +1147,220 @@ export default function Login({ onBackToLanding, initialView = 'login' }) {
 
         </div>
       </div>
+
+      {/* ======================================================== */}
+      {/* GOOGLE AUTHENTICATION & DIRECT IDENTITY MODAL           */}
+      {/* ======================================================== */}
+      {showGoogleModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="max-w-md w-full bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-slate-50 to-rose-50/30">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center">
+                  <GoogleIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900">Google Authentication</h3>
+                  <p className="text-[11px] text-slate-500">Sign in or verify with Google Identity</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGoogleModal(false)}
+                className="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-slate-100 bg-slate-50/50 p-1.5 gap-1 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setModalTab('quick')}
+                className={`flex-1 py-1.5 rounded-lg transition ${modalTab === 'quick' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+              >
+                Quick Accounts
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('custom')}
+                className={`flex-1 py-1.5 rounded-lg transition ${modalTab === 'custom' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+              >
+                Custom Google ID
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('token')}
+                className={`flex-1 py-1.5 rounded-lg transition ${modalTab === 'token' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-500 hover:text-slate-900'}`}
+              >
+                OAuth ID Token
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* TAB 1: QUICK PROFILES */}
+              {modalTab === 'quick' && (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    Select a Google identity profile to authenticate immediately or test new merchant onboarding:
+                  </p>
+
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => authenticateWithGoogle('freefiregodtamil@gmail.com', 'Dhanush Kumar')}
+                      className="w-full p-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-rose-50/60 hover:border-rose-300 text-left transition flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 font-extrabold text-xs flex items-center justify-center">
+                          DK
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-900 group-hover:text-rose-700 transition">
+                            freefiregodtamil@gmail.com
+                          </div>
+                          <div className="text-[10px] text-slate-500">Configured Admin Google Identity</div>
+                        </div>
+                      </div>
+                      <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-rose-600 group-hover:translate-x-0.5 transition" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => authenticateWithGoogle('merchant.owner@gmail.com', 'Rajesh Sharma')}
+                      className="w-full p-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-emerald-50/60 hover:border-emerald-300 text-left transition flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-700 font-extrabold text-xs flex items-center justify-center">
+                          RS
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-900 group-hover:text-emerald-700 transition">
+                            merchant.owner@gmail.com
+                          </div>
+                          <div className="text-[10px] text-slate-500">New Merchant KYC Onboarding (Google Pre-Verified)</div>
+                        </div>
+                      </div>
+                      <Sparkles className="w-4 h-4 text-emerald-500 group-hover:scale-110 transition" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => authenticateWithGoogle('admin@billwise.app', 'Ram Sharma')}
+                      className="w-full p-3 rounded-2xl border border-slate-200 bg-slate-50 hover:bg-blue-50/60 hover:border-blue-300 text-left transition flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-extrabold text-xs flex items-center justify-center">
+                          RS
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-900 group-hover:text-blue-700 transition">
+                            admin@billwise.app
+                          </div>
+                          <div className="text-[10px] text-slate-500">Seeded Verified Admin (Shri Ram Enterprise)</div>
+                        </div>
+                      </div>
+                      <ShieldCheck className="w-4 h-4 text-blue-500 group-hover:scale-110 transition" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: CUSTOM GOOGLE EMAIL */}
+              {modalTab === 'custom' && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    authenticateWithGoogle(modalEmail, modalName);
+                  }}
+                  className="space-y-3"
+                >
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                      Google Account Email *
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                      <input
+                        type="email"
+                        required
+                        value={modalEmail}
+                        onChange={(e) => setModalEmail(e.target.value)}
+                        placeholder="yourname@gmail.com"
+                        className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                      Full Name
+                    </label>
+                    <div className="relative">
+                      <User className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        value={modalName}
+                        onChange={(e) => setModalName(e.target.value)}
+                        placeholder="e.g. Dhanush Kumar"
+                        className="w-full pl-9 pr-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs focus:border-rose-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isGoogleLoading}
+                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white font-bold text-xs shadow-md shadow-rose-600/20 hover:from-rose-700 hover:to-red-700 transition flex items-center justify-center gap-2"
+                  >
+                    <GoogleIcon className="w-4 h-4" />
+                    <span>Sign In with this Google Account</span>
+                  </button>
+                </form>
+              )}
+
+              {/* TAB 3: OAUTH ID TOKEN */}
+              {modalTab === 'token' && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (modalIdToken.trim()) {
+                      authenticateWithGoogle({ idToken: modalIdToken.trim() });
+                    }
+                  }}
+                  className="space-y-3"
+                >
+                  <div>
+                    <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1">
+                      Signed Google JWT ID Token (Base64)
+                    </label>
+                    <textarea
+                      required
+                      rows={4}
+                      value={modalIdToken}
+                      onChange={(e) => setModalIdToken(e.target.value)}
+                      placeholder="eyJhbGciOiJSUzI1NiIsImtpZCI6..."
+                      className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-[11px] font-mono focus:border-rose-500 outline-none resize-none"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isGoogleLoading || !modalIdToken.trim()}
+                    className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-black text-white font-bold text-xs shadow transition flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Key className="w-3.5 h-3.5" />
+                    <span>Verify & Authenticate Token</span>
+                  </button>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

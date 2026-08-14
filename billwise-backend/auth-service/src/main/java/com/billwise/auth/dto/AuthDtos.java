@@ -118,14 +118,13 @@ public class AuthDtos {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class GoogleAuthRequest {
-        @NotBlank(message = "Email is required")
-        @Email(message = "Valid email is required")
-        private String email;
+        @NotBlank(message = "Google ID token is required")
+        private String idToken;
 
+        private String email;
         private String name;
         private String googleId;
         private String avatar;
-        private String idToken;
         private Role role = Role.ADMIN;
         private String adminUsername;
     }

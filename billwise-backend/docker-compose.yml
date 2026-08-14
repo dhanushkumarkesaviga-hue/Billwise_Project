@@ -11,6 +11,19 @@ services:
     networks:
       - billwise-network
 
+  mysql:
+    image: mysql:8.0
+    container_name: billwise-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_DATABASE=billwise_auth
+      - MYSQL_ROOT_PASSWORD=root
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - billwise-network
+
   eureka-server:
     build:
       context: ./eureka-server
@@ -29,10 +42,12 @@ services:
     ports:
       - "8082:8082"
     environment:
-      - SPRING_DATA_MONGODB_URI=mongodb://mongodb:27017/billwise
+      - SPRING_DATASOURCE_URL=jdbc:mysql://mysql:3306/billwise_auth?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=root
       - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://eureka-server:8761/eureka/
     depends_on:
-      - mongodb
+      - mysql
       - eureka-server
     networks:
       - billwise-network
@@ -75,3 +90,4 @@ networks:
 
 volumes:
   mongo-data:
+  mysql-data:

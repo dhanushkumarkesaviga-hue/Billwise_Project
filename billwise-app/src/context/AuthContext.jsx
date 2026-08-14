@@ -97,15 +97,14 @@ export function AuthProvider({ children }) {
       const profile = await userApi.getMe();
       if (profile) {
         setUserProfile(profile);
-        if (profile.merchant) {
-          setAuth(prev => prev ? {
-            ...prev,
-            merchantId: profile.merchantId,
-            merchantStatus: profile.merchant.status,
-            merchantTradeName: profile.merchant.tradeName,
-            fullName: profile.fullName
-          } : prev);
-        }
+        setAuth(prev => prev ? {
+          ...prev,
+          merchantId: profile.merchantId || prev.merchantId,
+          merchantStatus: profile.merchant?.status || prev.merchantStatus,
+          merchantTradeName: profile.merchant?.tradeName || prev.merchantTradeName,
+          fullName: profile.fullName || prev.fullName,
+          profilePhotoUrl: profile.profilePhotoUrl || prev.profilePhotoUrl
+        } : prev);
       }
       return profile;
     } catch {
@@ -195,6 +194,7 @@ export function AuthProvider({ children }) {
       username: userDetails.username,
       email: userDetails.email,
       fullName: userDetails.fullName,
+      profilePhotoUrl: userDetails.profilePhotoUrl,
       role: userDetails.role,
       merchantId: userDetails.merchantId,
       merchantStatus: userDetails.merchantStatus || 'VERIFIED',
@@ -212,6 +212,7 @@ export function AuthProvider({ children }) {
     username: auth?.username ?? null,
     email: auth?.email ?? null,
     fullName: auth?.fullName ?? userProfile?.fullName ?? null,
+    profilePhotoUrl: auth?.profilePhotoUrl ?? userProfile?.profilePhotoUrl ?? null,
     role: auth?.role ?? null,
     merchantId: auth?.merchantId ?? userProfile?.merchantId ?? null,
     merchantStatus: auth?.merchantStatus ?? userProfile?.merchant?.status ?? 'VERIFIED',

@@ -170,6 +170,16 @@ public class MerchantController {
         return ResponseEntity.ok(merchantService.verifyStaffUser(principal.getMerchantId(), staffUserId, verified, principal.getUsername()));
     }
 
+    @DeleteMapping("/staff/{staffUserId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteStaffUser(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable("staffUserId") String staffUserId
+    ) {
+        merchantService.deleteStaffUser(principal.getMerchantId(), staffUserId);
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/password-resets/pending")
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<List<PasswordResetDto>> getPendingPasswordResets(@AuthenticationPrincipal UserPrincipal principal) {

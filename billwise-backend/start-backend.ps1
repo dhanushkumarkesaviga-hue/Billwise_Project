@@ -8,6 +8,19 @@ Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "BillWise Spring Boot Backend Launcher" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 
+# Load environment variables from .env if present
+if (Test-Path "$backendDir\.env") {
+    Write-Host "Loading environment variables from .env..." -ForegroundColor Yellow
+    Get-Content "$backendDir\.env" | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith("#") -and $line -match "^([^=]+)=(.*)$") {
+            $key = $matches[1].Trim()
+            $val = $matches[2].Trim()
+            [System.Environment]::SetEnvironmentVariable($key, $val, [System.EnvironmentVariableTarget]::Process)
+        }
+    }
+}
+
 # 1. Check if MongoDB is reachable on 27017
 try {
     $tcp = New-Object System.Net.Sockets.TcpClient("127.0.0.1", 27017)
@@ -49,7 +62,7 @@ New-Item -ItemType Directory -Force -Path "$backendDir\target\classes" | Out-Nul
 Copy-Item -Path "$backendDir\src\main\resources\*" -Destination "$backendDir\target\classes" -Recurse -Force -ErrorAction SilentlyContinue
 
 $javaFiles = (Get-ChildItem -Path "$backendDir\src\main\java" -Filter "*.java" -Recurse | Select-Object -ExpandProperty FullName)
-$compileArgs = @("-parameters", "-cp", $cp)
+$compileArgs = @("-encoding", "UTF-8", "-parameters", "-cp", $cp)
 if ($lombokJar) {
     $compileArgs += @("-processorpath", $lombokJar)
 }

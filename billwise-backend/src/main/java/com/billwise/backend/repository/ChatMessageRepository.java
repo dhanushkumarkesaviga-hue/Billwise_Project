@@ -9,5 +9,11 @@ public interface ChatMessageRepository extends MongoRepository<ChatMessage, Stri
 
     List<ChatMessage> findBySessionIdOrderByCreatedAtAsc(String sessionId);
 
+    List<ChatMessage> findByUsernameAndSessionIdOrderByCreatedAtAsc(String username, String sessionId);
+
+    List<ChatMessage> findByUsernameOrderByCreatedAtAsc(String username);
+
     void deleteBySessionId(String sessionId);
+
+    void deleteByUsernameAndSessionId(String username, String sessionId);
 }

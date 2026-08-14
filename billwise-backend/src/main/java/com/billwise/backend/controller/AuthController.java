@@ -31,6 +31,49 @@ public class AuthController {
         return authService.login(request);
     }
 
+    @PostMapping({"/send-otp", "/send-signup-otp"})
+    public ResponseEntity<Map<String, Object>> sendOtp(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        String purpose = body.getOrDefault("purpose", "ADMIN_SIGNUP_VERIFICATION");
+        return ResponseEntity.ok(authService.sendOtp(email, purpose));
+    }
+
+    @PostMapping({"/verify-otp", "/verify-signup-otp"})
+    public ResponseEntity<Map<String, Object>> verifyOtp(@RequestBody Map<String, String> body) {
+        String email = body.get("email");
+        String otp = body.get("otp");
+        String purpose = body.getOrDefault("purpose", "ADMIN_SIGNUP_VERIFICATION");
+        return ResponseEntity.ok(authService.verifyOtp(email, otp, purpose));
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<Map<String, Object>> googleAuth(@RequestBody Map<String, String> body) {
+        String idToken = body.get("idToken");
+        String role = body.get("role");
+        return ResponseEntity.ok(authService.googleAuth(idToken, role));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Map<String, Object>> forgotPassword(@RequestBody Map<String, String> body) {
+        String identifier = body.get("identifier");
+        return ResponseEntity.ok(authService.forgotPassword(identifier));
+    }
+
+    @PostMapping("/verify-reset-otp")
+    public ResponseEntity<Map<String, Object>> verifyResetOtp(@RequestBody Map<String, String> body) {
+        String identifier = body.get("identifier");
+        String otp = body.get("otp");
+        return ResponseEntity.ok(authService.verifyResetOtp(identifier, otp));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<Map<String, Object>> resetPassword(@RequestBody Map<String, String> body) {
+        String identifier = body.get("identifier");
+        String otp = body.get("otp");
+        String newPassword = body.get("newPassword");
+        return ResponseEntity.ok(authService.resetPassword(identifier, otp, newPassword));
+    }
+
     // Lets the frontend restore session state (username/role) after a page
     // refresh just by re-sending the stored token, without a full login.
     @GetMapping("/me")

@@ -33,6 +33,12 @@ public class MerchantResponse {
     private String rejectionReason;
     private List<String> duplicateWarningFlags;
     private String adminUsername;
+    private String taxpayerType;
+    private String turnoverSlab;
+    private String filingFrequency;
+    private boolean autoBumpedToMonthly;
+    private Instant turnoverExceededAt;
+    private boolean emailRemindersEnabled;
     private Instant verifiedAt;
     private String verifiedBy;
     private Instant createdAt;
@@ -60,6 +66,12 @@ public class MerchantResponse {
                 m.getRejectionReason(),
                 m.getDuplicateWarningFlags(),
                 m.getAdminUsername(),
+                m.getTaxpayerType() != null ? m.getTaxpayerType() : "REGULAR",
+                m.getTurnoverSlab() != null ? m.getTurnoverSlab() : "UP_TO_1_5_CR",
+                m.getFilingFrequency() != null ? m.getFilingFrequency() : "MONTHLY",
+                m.isAutoBumpedToMonthly(),
+                m.getTurnoverExceededAt(),
+                m.isEmailRemindersEnabled(),
                 m.getVerifiedAt(),
                 m.getVerifiedBy(),
                 m.getCreatedAt(),

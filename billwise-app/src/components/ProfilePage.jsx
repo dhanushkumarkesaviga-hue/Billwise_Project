@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   User, 
   Mail, 
@@ -11,9 +11,12 @@ import {
   Save, 
   Key, 
   Camera, 
+  Upload,
   Calendar,
   Eye,
-  EyeOff
+  EyeOff,
+  Image as ImageIcon,
+  RotateCcw
 } from 'lucide-react';
 import { userApi } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -28,6 +31,7 @@ const AVATAR_PRESETS = [
 
 export default function ProfilePage() {
   const { username, role, refreshProfile } = useAuth();
+  const fileInputRef = useRef(null);
 
   const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,6 +44,16 @@ export default function ProfilePage() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [profileMsg, setProfileMsg] = useState(null);
   const [profileError, setProfileError] = useState(null);
+  const [isUploadingLocal, setIsUploadingLocal] = useState(false);
+
+  // Change Email with OTP state
+  const [showEmailOtpModal, setShowEmailOtpModal] = useState(false);
+  const [emailOtpCode, setEmailOtpCode] = useState('');
+  const [isSendingEmailOtp, setIsSendingEmailOtp] = useState(false);
+  const [isVerifyingEmailOtp, setIsVerifyingEmailOtp] = useState(false);
+  const [emailOtpCountdown, setEmailOtpCountdown] = useState(0);
+  const [emailOtpError, setEmailOtpError] = useState(null);
+  const [devEmailOtp, setDevEmailOtp] = useState(null);
 
   // Change Password state
   const [passwordForm, setPasswordForm] = useState({
@@ -55,6 +69,17 @@ export default function ProfilePage() {
   useEffect(() => {
     loadProfile();
   }, []);
+
+  // OTP resend countdown timer
+  useEffect(() => {
+    let timer;
+    if (emailOtpCountdown > 0) {
+      timer = setInterval(() => {
+        setEmailOtpCountdown(prev => prev - 1);
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [emailOtpCountdown]);
 
   const loadProfile = async () => {
     setIsLoading(true);
@@ -74,11 +99,109 @@ export default function ProfilePage() {
     }
   };
 
+  // Handle Local Image Upload & Client-Side Canvas Optimization
+  const handleLocalImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setProfileError('Please select a valid image file (PNG, JPG, JPEG, WEBP).');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setProfileError('Image file is too large (max 5MB). Please choose a smaller photo.');
+      return;
+    }
+
+    setIsUploadingLocal(true);
+    setProfileError(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        // High quality canvas resize (max 320x320)
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 320;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const optimizedBase64 = canvas.toDataURL('image/jpeg', 0.88);
+        setProfileForm(prev => ({ ...prev, profilePhotoUrl: optimizedBase64 }));
+        setIsUploadingLocal(false);
+        setProfileMsg('Local image loaded! Click "Save Profile Details" to apply.');
+        setTimeout(() => setProfileMsg(null), 3000);
+      };
+      img.onerror = () => {
+        setIsUploadingLocal(false);
+        setProfileError('Failed to process the selected image.');
+      };
+      img.src = event.target.result;
+    };
+    reader.onerror = () => {
+      setIsUploadingLocal(false);
+      setProfileError('Failed to read image file from disk.');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Trigger dispatching OTP to new email address
+  const handleSendEmailChangeOtp = async () => {
+    const targetEmail = profileForm.email.trim();
+    if (!targetEmail) {
+      setProfileError('Please enter a valid email address.');
+      return;
+    }
+
+    setIsSendingEmailOtp(true);
+    setEmailOtpError(null);
+    try {
+      const resp = await userApi.sendEmailChangeOtp(targetEmail);
+      if (resp?.devOtp) {
+        setDevEmailOtp(resp.devOtp);
+      }
+      setEmailOtpCountdown(60);
+      setShowEmailOtpModal(true);
+    } catch (err) {
+      setProfileError(err.message || 'Failed to send verification OTP to new email');
+      setEmailOtpError(err.message || 'Failed to send OTP code.');
+    } finally {
+      setIsSendingEmailOtp(false);
+    }
+  };
+
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
-    setIsSavingProfile(true);
     setProfileMsg(null);
     setProfileError(null);
+
+    const isEmailChanged = profile?.email && profileForm.email.trim().toLowerCase() !== profile.email.trim().toLowerCase();
+
+    if (isEmailChanged) {
+      // Require OTP verification modal for email update
+      await handleSendEmailChangeOtp();
+      return;
+    }
+
+    setIsSavingProfile(true);
     try {
       const updated = await userApi.updateProfile(profileForm);
       setProfile(updated);
@@ -89,6 +212,35 @@ export default function ProfilePage() {
       setProfileError(err.message || "Failed to update profile");
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  // Confirm email change with OTP
+  const handleConfirmEmailOtpAndUpdate = async (e) => {
+    e.preventDefault();
+    if (!emailOtpCode || emailOtpCode.trim().length !== 6) {
+      setEmailOtpError("Please enter the 6-digit numeric OTP code.");
+      return;
+    }
+
+    setIsVerifyingEmailOtp(true);
+    setEmailOtpError(null);
+    try {
+      const updated = await userApi.updateProfile({
+        ...profileForm,
+        emailOtp: emailOtpCode.trim()
+      });
+      setProfile(updated);
+      setShowEmailOtpModal(false);
+      setEmailOtpCode('');
+      setDevEmailOtp(null);
+      setProfileMsg("Email address verified and profile updated successfully!");
+      await refreshProfile();
+      setTimeout(() => setProfileMsg(null), 4000);
+    } catch (err) {
+      setEmailOtpError(err.message || "Invalid or expired OTP code.");
+    } finally {
+      setIsVerifyingEmailOtp(false);
     }
   };
 
@@ -133,12 +285,23 @@ export default function ProfilePage() {
 
       {/* Header Profile Card */}
       <div className="glass-panel rounded-3xl p-6 sm:p-8 border border-rose-200 flex flex-col sm:flex-row items-center sm:items-start gap-6">
-        <div className="relative group shrink-0">
+        <div 
+          onClick={() => fileInputRef.current?.click()}
+          className="relative group shrink-0 cursor-pointer"
+          title="Click to choose a local avatar image"
+        >
           <img
             src={profileForm.profilePhotoUrl || AVATAR_PRESETS[0]}
             alt={profile?.username}
-            className="w-20 h-20 rounded-2xl object-cover border-2 border-rose-300 shadow-md"
+            className="w-20 h-20 rounded-2xl object-cover border-2 border-rose-300 shadow-md group-hover:opacity-90 group-hover:scale-102 transition"
           />
+          <div className="absolute inset-0 bg-slate-900/40 rounded-2xl opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white transition">
+            <Camera className="w-5 h-5 mb-0.5" />
+            <span className="text-[9px] font-bold">Change</span>
+          </div>
+          <div className="absolute -bottom-1 -right-1 w-6 h-6 bg-rose-600 rounded-full border-2 border-white flex items-center justify-center text-white shadow-sm">
+            <Upload className="w-3 h-3" />
+          </div>
         </div>
 
         <div className="space-y-1.5 text-center sm:text-left flex-1">
@@ -245,6 +408,22 @@ export default function ProfilePage() {
                   className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 text-xs font-medium focus:border-rose-500 outline-none"
                 />
               </div>
+
+              {/* Email Change Warning Alert */}
+              {profile?.email && profileForm.email && profileForm.email.trim().toLowerCase() !== profile.email.trim().toLowerCase() && (
+                <div className="p-3.5 mt-2.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-1.5 animate-in fade-in slide-in-from-top-1 duration-200 shadow-2xs">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    ⚠️ Security Notice: Changing Registered Account Email
+                  </div>
+                  <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                    You are changing your email from <strong className="font-semibold text-slate-900">{profile.email}</strong> to <strong className="font-semibold text-rose-600">{profileForm.email}</strong>.
+                  </p>
+                  <div className="text-[10.5px] text-amber-900 font-medium bg-amber-100/60 p-2 rounded-xl border border-amber-200/80 leading-normal">
+                    🔒 <strong>OTP Verification Required:</strong> Clicking <em>"Save Profile Details"</em> will send a 6-digit verification code to the new address. All future GST filing alerts, password reset codes, and login recovery links will be routed to this new email.
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -262,23 +441,62 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            <div>
-              <label className="text-[10px] font-bold uppercase text-slate-500 block mb-1.5">
-                Choose Profile Avatar Preset
+            {/* Profile Avatar Selection: Local Upload & Presets */}
+            <div className="space-y-2 pt-1">
+              <label className="text-[10px] font-bold uppercase text-slate-500 block">
+                Profile Avatar
               </label>
+
+              {/* Hidden file input */}
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                onChange={handleLocalImageUpload}
+                className="hidden"
+              />
+
+              {/* Local File Picker Button */}
               <div className="flex items-center gap-2">
-                {AVATAR_PRESETS.map((av, idx) => (
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingLocal}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 border border-slate-200 text-xs font-bold transition shadow-2xs cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5 text-rose-600" />
+                  <span>{isUploadingLocal ? 'Processing…' : 'Choose Local Image from Device'}</span>
+                </button>
+
+                {profileForm.profilePhotoUrl?.startsWith('data:') && (
                   <button
-                    key={idx}
                     type="button"
-                    onClick={() => setProfileForm({ ...profileForm, profilePhotoUrl: av })}
-                    className={`w-9 h-9 rounded-xl overflow-hidden border-2 transition ${
-                      profileForm.profilePhotoUrl === av ? 'border-rose-600 scale-105 shadow-sm' : 'border-transparent opacity-70 hover:opacity-100'
-                    }`}
+                    onClick={() => setProfileForm(prev => ({ ...prev, profilePhotoUrl: AVATAR_PRESETS[0] }))}
+                    className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 text-xs font-bold transition cursor-pointer"
+                    title="Reset to default avatar"
                   >
-                    <img src={av} alt="avatar option" className="w-full h-full object-cover" />
+                    <RotateCcw className="w-3.5 h-3.5" />
                   </button>
-                ))}
+                )}
+              </div>
+
+              {/* Avatar Presets Row */}
+              <div className="pt-1">
+                <span className="text-[10px] text-slate-400 font-medium block mb-1.5">Or choose a preset:</span>
+                <div className="flex items-center gap-2">
+                  {AVATAR_PRESETS.map((av, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setProfileForm({ ...profileForm, profilePhotoUrl: av })}
+                      className={`w-9 h-9 rounded-xl overflow-hidden border-2 transition cursor-pointer ${
+                        profileForm.profilePhotoUrl === av ? 'border-rose-600 scale-105 shadow-sm' : 'border-transparent opacity-70 hover:opacity-100'
+                      }`}
+                    >
+                      <img src={av} alt="avatar option" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -286,7 +504,7 @@ export default function ProfilePage() {
               <button
                 type="submit"
                 disabled={isSavingProfile}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition disabled:opacity-60"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm transition disabled:opacity-60 cursor-pointer"
               >
                 <Save className="w-4 h-4" />
                 {isSavingProfile ? 'Saving Changes…' : 'Save Profile Details'}
@@ -380,7 +598,7 @@ export default function ProfilePage() {
               <button
                 type="submit"
                 disabled={isChangingPass}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs shadow-sm transition disabled:opacity-60"
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs shadow-sm transition disabled:opacity-60 cursor-pointer"
               >
                 <Key className="w-4 h-4" />
                 {isChangingPass ? 'Updating Password…' : 'Update Account Password'}
@@ -390,6 +608,109 @@ export default function ProfilePage() {
         </div>
 
       </div>
+
+      {/* Email Change OTP Verification Modal */}
+      {showEmailOtpModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-6 sm:p-8 space-y-5 shadow-2xl animate-in zoom-in-95 duration-200">
+            
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600 shrink-0 shadow-2xs">
+                <Mail className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-900">
+                  Verify New Email Address
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Confirm ownership of <strong className="text-rose-600">{profileForm.email}</strong>
+                </p>
+              </div>
+            </div>
+
+            {/* Security Warning Notice */}
+            <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                Security Warning
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-800/90">
+                A 6-digit OTP code has been dispatched to <strong>{profileForm.email}</strong>. Once confirmed, your old email (<em>{profile?.email}</em>) will no longer receive system notifications or password reset requests.
+              </p>
+            </div>
+
+            {emailOtpError && (
+              <div className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs border border-rose-200 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{emailOtpError}</span>
+              </div>
+            )}
+
+            {/* Dev helper code */}
+            {devEmailOtp && (
+              <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-800 text-xs flex items-center justify-between">
+                <span>Dev OTP code:</span>
+                <span className="font-mono font-bold tracking-widest bg-white px-2 py-0.5 rounded border border-blue-300">
+                  {devEmailOtp}
+                </span>
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmEmailOtpAndUpdate} className="space-y-4">
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block mb-1.5">
+                  Enter 6-Digit Verification Code *
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  required
+                  autoFocus
+                  placeholder="123456"
+                  value={emailOtpCode}
+                  onChange={(e) => setEmailOtpCode(e.target.value.replace(/\D/g, ''))}
+                  className="w-full text-center text-2xl font-mono font-extrabold tracking-widest py-3 rounded-2xl bg-slate-50 border-2 border-slate-200 focus:border-rose-500 focus:bg-white outline-none transition"
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-xs pt-1">
+                <span className="text-slate-400">Didn't receive code?</span>
+                <button
+                  type="button"
+                  onClick={handleSendEmailChangeOtp}
+                  disabled={emailOtpCountdown > 0 || isSendingEmailOtp}
+                  className="text-rose-600 font-bold hover:underline disabled:text-slate-400 disabled:no-underline cursor-pointer"
+                >
+                  {isSendingEmailOtp ? 'Sending…' : emailOtpCountdown > 0 ? `Resend in ${emailOtpCountdown}s` : 'Resend Code'}
+                </button>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2.5 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEmailOtpModal(false);
+                    setEmailOtpCode('');
+                    setEmailOtpError(null);
+                  }}
+                  disabled={isVerifyingEmailOtp}
+                  className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isVerifyingEmailOtp || emailOtpCode.length !== 6}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md transition disabled:opacity-50 cursor-pointer"
+                >
+                  {isVerifyingEmailOtp ? 'Verifying…' : 'Verify & Update Email'}
+                </button>
+              </div>
+            </form>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

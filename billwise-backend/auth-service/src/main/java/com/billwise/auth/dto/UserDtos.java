@@ -25,6 +25,7 @@ public class UserDtos {
 
         private String phone;
         private String profilePhotoUrl;
+        private String emailOtp;
     }
 
     @Getter

@@ -52,6 +52,9 @@ public class User {
 
     private String themePreference = "light";
 
+    private String resetOtp;
+    private Instant resetOtpExpiresAt;
+
     private Instant createdAt = Instant.now();
 
     private Instant updatedAt = Instant.now();

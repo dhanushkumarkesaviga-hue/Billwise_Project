@@ -21,14 +21,38 @@ public class GstValidationUtil {
             Map.entry("08", "Rajasthan"),
             Map.entry("09", "Uttar Pradesh"),
             Map.entry("10", "Bihar"),
+            Map.entry("11", "Sikkim"),
+            Map.entry("12", "Arunachal Pradesh"),
+            Map.entry("13", "Nagaland"),
+            Map.entry("14", "Manipur"),
+            Map.entry("15", "Mizoram"),
+            Map.entry("16", "Tripura"),
+            Map.entry("17", "Meghalaya"),
+            Map.entry("18", "Assam"),
             Map.entry("19", "West Bengal"),
+            Map.entry("20", "Jharkhand"),
+            Map.entry("21", "Odisha"),
+            Map.entry("22", "Chhattisgarh"),
+            Map.entry("23", "Madhya Pradesh"),
             Map.entry("24", "Gujarat"),
+            Map.entry("26", "Dadra and Nagar Haveli and Daman and Diu"),
             Map.entry("27", "Maharashtra"),
             Map.entry("29", "Karnataka"),
+            Map.entry("30", "Goa"),
+            Map.entry("31", "Lakshadweep"),
             Map.entry("32", "Kerala"),
             Map.entry("33", "Tamil Nadu"),
-            Map.entry("36", "Telangana")
+            Map.entry("34", "Puducherry"),
+            Map.entry("35", "Andaman and Nicobar Islands"),
+            Map.entry("36", "Telangana"),
+            Map.entry("37", "Andhra Pradesh"),
+            Map.entry("38", "Ladakh")
     );
+
+    public static boolean isValidStateCode(String stateCode) {
+        if (stateCode == null) return false;
+        return STATE_CODE_MAP.containsKey(stateCode.trim());
+    }
 
     public static boolean isValidGstinFormat(String gstin) {
         if (gstin == null) return false;
@@ -36,29 +60,46 @@ public class GstValidationUtil {
         return GSTIN_PATTERN.matcher(clean).matches();
     }
 
+    public static Character calculateChecksum(String first14) {
+        if (first14 == null || first14.length() < 14) return null;
+        String clean = first14.trim().toUpperCase();
+        try {
+            int sum = 0;
+            for (int i = 0; i < 14; i++) {
+                int codePoint = CHAR_SET.indexOf(clean.charAt(i));
+                if (codePoint == -1) return null;
+                int factor = (i % 2 == 0) ? 1 : 2;
+                int digit = factor * codePoint;
+                digit = (digit / 36) + (digit % 36);
+                sum += digit;
+            }
+            int remainder = sum % 36;
+            int expectedCheckPoint = (36 - remainder) % 36;
+            return CHAR_SET.charAt(expectedCheckPoint);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     public static boolean verifyChecksum(String gstin) {
         if (!isValidGstinFormat(gstin)) return false;
         String clean = gstin.trim().toUpperCase();
         try {
-            int factor = 1;
-            int sum = 0;
-            int checkCodePoint = CHAR_SET.indexOf(clean.charAt(14));
-
-            for (int i = 0; i < 14; i++) {
-                int codePoint = CHAR_SET.indexOf(clean.charAt(i));
-                if (codePoint == -1) return false;
-                int digit = factor * codePoint;
-                factor = (factor == 2) ? 1 : 2;
-                digit = (digit / 36) + (digit % 36);
-                sum += digit;
-            }
-
-            int remainder = sum % 36;
-            int expectedCheckPoint = (36 - remainder) % 36;
-            return checkCodePoint == expectedCheckPoint;
+            Character expected = calculateChecksum(clean.substring(0, 14));
+            if (expected == null) return false;
+            return clean.charAt(14) == expected;
         } catch (Exception e) {
             return false;
         }
+    }
+
+    public static boolean isValidGstin(String gstin) {
+        if (gstin == null) return false;
+        String clean = gstin.trim().toUpperCase();
+        if (clean.length() != 15) return false;
+        if (!isValidGstinFormat(clean)) return false;
+        if (!isValidStateCode(extractStateCode(clean))) return false;
+        return verifyChecksum(clean);
     }
 
     public static boolean matchesPan(String gstin, String pan) {

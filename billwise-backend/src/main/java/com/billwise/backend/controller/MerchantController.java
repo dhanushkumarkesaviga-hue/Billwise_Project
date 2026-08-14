@@ -104,7 +104,7 @@ public class MerchantController {
     /**
      * SUPER_ADMIN: View verification audit trail logs for a merchant.
      */
-    @GetMapping("/{id}/logs")
+    @GetMapping({"/{id}/logs", "/{id}/verification-logs"})
     @PreAuthorize("hasRole('SUPER_ADMIN')")
     public ResponseEntity<List<VerificationLog>> getVerificationLogs(@PathVariable("id") String id) {
         return ResponseEntity.ok(merchantService.getVerificationLogs(id));
@@ -113,7 +113,7 @@ public class MerchantController {
     /**
      * Get logged-in admin's merchant business profile.
      */
-    @GetMapping("/my-business")
+    @GetMapping({"/my", "/my-business"})
     public ResponseEntity<MerchantResponse> getMyBusiness(Principal principal) {
         MerchantResponse response = merchantService.getMyBusiness(principal.getName());
         return ResponseEntity.ok(response);
@@ -122,7 +122,7 @@ public class MerchantController {
     /**
      * Merchant Admin: Update business profile details (GSTIN & legal name locked).
      */
-    @PutMapping("/my-business")
+    @PutMapping({"/my", "/my-business"})
     @PreAuthorize("hasAnyRole('ADMIN', 'SUPER_ADMIN')")
     public ResponseEntity<MerchantResponse> updateMyBusiness(
             Principal principal,

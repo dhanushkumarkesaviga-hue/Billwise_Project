@@ -62,6 +62,7 @@ public class MerchantDtos {
         private String adminFullName;
         private String adminPhone;
         private String emailOtp;
+        private String googleIdToken;
 
         public String getResolvedPan() {
             if (pan != null && !pan.isBlank()) return pan.trim().toUpperCase();

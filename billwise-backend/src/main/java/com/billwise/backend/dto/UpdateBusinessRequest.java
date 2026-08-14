@@ -16,4 +16,8 @@ public class UpdateBusinessRequest {
     private String pincode;
     private String contactEmail;
     private String contactPhone;
+    private String taxpayerType;
+    private String turnoverSlab;
+    private String filingFrequency;
+    private Boolean emailRemindersEnabled;
 }

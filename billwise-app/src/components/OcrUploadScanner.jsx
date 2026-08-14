@@ -26,7 +26,9 @@ import {
   MoveRight,
   CheckCircle,
   HelpCircle,
-  AlertTriangle
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { createWorker } from 'tesseract.js';
@@ -42,25 +44,7 @@ import {
 } from '../utils/invoiceExtraction';
 import { callVlmExtraction } from '../utils/vlmExtraction';
 
-// Must mirror InvoiceCategories.ALLOWED_CATEGORIES on the backend, so the
-// AI's classification result is always a valid selectable option here.
-const CATEGORY_OPTIONS = [
-  "Raw Materials",
-  "Capital Goods & Office Assets",
-  "Cloud Infrastructure",
-  "Software & Subscriptions",
-  "Freight & Transport",
-  "Food & Entertainment",
-  "Professional & Legal Services",
-  "Utilities",
-  "Rent & Facilities",
-  "Marketing & Advertising",
-  "Office Supplies & Stationery",
-  "Insurance",
-  "Travel & Conveyance",
-  "Repairs & Maintenance",
-  "Other"
-];
+import { CATEGORY_OPTIONS } from '../utils/categoryConstants';
 
 function CandidateFieldBadge({
   fieldName,
@@ -205,6 +189,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
   const [ocrRawText, setOcrRawText] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+  const [showLineItems, setShowLineItems] = useState(false);
   
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -582,10 +567,22 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
     setScanStep(5);
     setScanStatusText("Validating Section 17(5) Input Tax Credit (ITC) eligibility...");
 
+    const docType = reconciledFields.documentType || 'tax_invoice';
+    const isBos = docType === 'bill_of_supply';
+    const isRcm = docType === 'reverse_charge';
+
     // Auto-detect ITC eligibility based on category (e.g. Food & Entertainment is blocked under Sec 17(5)(b))
     const isBlockedCategory = classifiedCategory === "Food & Entertainment" || classifiedCategory === "Insurance";
-    const itcEligibility = isBlockedCategory ? "Ineligible (Sec 17(5))" : "Eligible";
-    const itcAmount = isBlockedCategory ? 0 : (reconciledFields.cgst + reconciledFields.sgst + reconciledFields.igst);
+    let itcEligibility = "Eligible";
+    let itcAmount = reconciledFields.cgst + reconciledFields.sgst + reconciledFields.igst;
+
+    if (isBos) {
+      itcEligibility = "Ineligible (Bill of Supply)";
+      itcAmount = 0;
+    } else if (isBlockedCategory) {
+      itcEligibility = "Ineligible (Sec 17(5))";
+      itcAmount = 0;
+    }
 
     const realExtractedData = {
       id: `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -597,6 +594,9 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
       dueDate: new Date(Date.now() + 20 * 86400000).toISOString().split('T')[0],
       category: classifiedCategory,
       hsnSac: reconciledFields.hsnSac,
+      documentType: docType,
+      extractionConfidence: reconciledFields.extractionConfidence !== undefined ? reconciledFields.extractionConfidence : 0.95,
+      lineItems: reconciledFields.lineItems || [],
       taxableAmount: reconciledFields.taxableAmount,
       gstRate: reconciledFields.gstRate,
       cgst: reconciledFields.cgst,
@@ -606,7 +606,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
       isArithmeticValid: reconciledFields.isArithmeticValid,
       itcEligibility: itcEligibility,
       itcAmount: itcAmount,
-      rcmApplicable: false,
+      rcmApplicable: isRcm,
       status: "Approved",
       paymentStatus: "Unpaid",
       ocrConfidence: reconciledFields.ocrConfidence,
@@ -641,19 +641,63 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
     }
   };
 
+  const handleDocumentTypeChange = (newType) => {
+    if (!extractedData) return;
+    const isBos = newType === 'bill_of_supply';
+    const isRcm = newType === 'reverse_charge';
+
+    let updated = { 
+      ...extractedData, 
+      documentType: newType,
+      rcmApplicable: isRcm
+    };
+
+    if (isBos) {
+      updated.gstRate = 0;
+      updated.cgst = 0;
+      updated.sgst = 0;
+      updated.igst = 0;
+      updated.totalAmount = updated.taxableAmount || 0;
+      updated.itcEligibility = 'Ineligible (Bill of Supply)';
+      updated.itcAmount = 0;
+      updated.isArithmeticValid = true;
+    } else if (extractedData.documentType === 'bill_of_supply' && !isBos) {
+      const rate = 18;
+      const gst = Math.round(((updated.taxableAmount || 0) * rate) / 100 * 100) / 100;
+      updated.gstRate = rate;
+      updated.cgst = Math.round((gst / 2) * 100) / 100;
+      updated.sgst = Math.round((gst / 2) * 100) / 100;
+      updated.totalAmount = Math.round(((updated.taxableAmount || 0) + gst) * 100) / 100;
+      updated.itcEligibility = 'Eligible';
+      updated.itcAmount = gst;
+      updated.isArithmeticValid = true;
+    }
+
+    setExtractedData(updated);
+  };
+
   const handleSelectCandidate = (fieldName, value) => {
     if (!extractedData) return;
     const updated = { ...extractedData, [fieldName]: value };
 
     if (fieldName === 'taxableAmount') {
       const val = parseFloat(value) || 0;
-      const gst = Math.round((val * (extractedData.gstRate || 18)) / 100 * 100) / 100;
-      updated.taxableAmount = val;
-      updated.cgst = Math.round((gst / 2) * 100) / 100;
-      updated.sgst = Math.round((gst / 2) * 100) / 100;
-      updated.totalAmount = Math.round((val + gst) * 100) / 100;
-      updated.itcAmount = extractedData.itcEligibility?.includes('Eligible') ? gst : 0;
-      updated.isArithmeticValid = true;
+      if (extractedData.documentType === 'bill_of_supply') {
+        updated.taxableAmount = val;
+        updated.totalAmount = val;
+        updated.cgst = 0;
+        updated.sgst = 0;
+        updated.igst = 0;
+        updated.isArithmeticValid = true;
+      } else {
+        const gst = Math.round((val * (extractedData.gstRate || 18)) / 100 * 100) / 100;
+        updated.taxableAmount = val;
+        updated.cgst = Math.round((gst / 2) * 100) / 100;
+        updated.sgst = Math.round((gst / 2) * 100) / 100;
+        updated.totalAmount = Math.round((val + gst) * 100) / 100;
+        updated.itcAmount = extractedData.itcEligibility?.includes('Eligible') ? gst : 0;
+        updated.isArithmeticValid = true;
+      }
     } else if (fieldName === 'gstRate') {
       const rate = Number(value) || 0;
       const gst = Math.round(((extractedData.taxableAmount || 0) * rate) / 100 * 100) / 100;
@@ -1238,6 +1282,45 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
             </button>
           </div>
 
+          {/* Low Extraction Confidence / Unclear Document Alert Banner */}
+          {((extractedData.extractionConfidence !== undefined && extractedData.extractionConfidence < 0.5) || extractedData.documentType === 'unclear') && (
+            <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-950 text-xs flex items-start gap-2.5 shadow-2xs">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <div className="font-bold flex items-center gap-2">
+                  <span>Low Extraction Confidence — Please Review Carefully</span>
+                  {extractedData.extractionConfidence !== undefined && (
+                    <span className="px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 text-[10px] font-mono font-bold">
+                      Score: {Math.round(extractedData.extractionConfidence * 100)}%
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-900 leading-relaxed">
+                  The model encountered low scan contrast, handwritten annotations, or regional script. Please verify all extracted fields and line items before saving.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Document Type Specific Info Banners */}
+          {extractedData.documentType === 'bill_of_supply' && (
+            <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs flex items-center gap-2.5 shadow-2xs">
+              <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+              <div>
+                <span className="font-bold">Bill of Supply (Composition Scheme / Exempt Supply):</span> GST is 0.0% by statutory regulation. Input Tax Credit (ITC) cannot be claimed on this bill.
+              </div>
+            </div>
+          )}
+
+          {extractedData.documentType === 'reverse_charge' && (
+            <div className="p-3 rounded-xl bg-purple-50 border border-purple-200 text-purple-900 text-xs flex items-center gap-2.5 shadow-2xs">
+              <Zap className="w-4 h-4 text-purple-600 shrink-0" />
+              <div>
+                <span className="font-bold">Reverse Charge Mechanism (RCM):</span> Tax liability falls on the recipient under GST Section 9(3)/9(4).
+              </div>
+            </div>
+          )}
+
           {/* Conflict Resolution Notice Banner */}
           {extractedData.hasConflicts && (
             <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-300 text-amber-900 text-xs flex items-start gap-2.5 shadow-2xs">
@@ -1256,8 +1339,8 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
             </div>
           )}
 
-          {/* Arithmetic Mismatch Warning if any */}
-          {extractedData.isArithmeticValid === false && (
+          {/* Arithmetic Mismatch Warning if any (suppressed for Bill of Supply) */}
+          {extractedData.isArithmeticValid === false && extractedData.documentType !== 'bill_of_supply' && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 text-xs flex items-center gap-2.5">
               <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
               <div>
@@ -1333,6 +1416,25 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
+                {/* Document Type */}
+                <div className="col-span-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-slate-600 font-semibold">Document Type</label>
+                    <span className="text-[10px] text-slate-500 font-medium">GST Classification</span>
+                  </div>
+                  <select
+                    value={extractedData.documentType || 'tax_invoice'}
+                    onChange={(e) => handleDocumentTypeChange(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 font-semibold focus:border-rose-500 outline-none"
+                  >
+                    <option value="tax_invoice">Tax Invoice (Standard GST Taxed)</option>
+                    <option value="bill_of_supply">Bill of Supply (Composition Dealer / Exempt - 0% Tax)</option>
+                    <option value="reverse_charge">Reverse Charge (RCM Invoice - Tax on Recipient)</option>
+                    <option value="export_zero_rated">Export / Zero-Rated (LUT Supply)</option>
+                    <option value="unclear">Unclear / Retail Cash Receipt</option>
+                  </select>
+                </div>
+
                 {/* Vendor Name */}
                 <div className="col-span-2">
                   <div className="flex items-center justify-between">
@@ -1343,7 +1445,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                         label="Vendor Name" 
                         extractedData={extractedData} 
                         onSelectCandidate={handleSelectCandidate} 
-                      />
+                        />
                     </div>
                     {!extractedData.vendorName && (
                       <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
@@ -1496,16 +1598,28 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                     value={extractedData.taxableAmount || ''}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value) || 0;
-                      const gst = Math.round((val * extractedData.gstRate) / 100 * 100) / 100;
-                      setExtractedData({ 
-                        ...extractedData, 
-                        taxableAmount: val,
-                        cgst: Math.round((gst / 2) * 100) / 100,
-                        sgst: Math.round((gst / 2) * 100) / 100,
-                        totalAmount: Math.round((val + gst) * 100) / 100,
-                        itcAmount: extractedData.itcEligibility.includes('Eligible') ? gst : 0,
-                        isArithmeticValid: true
-                      });
+                      if (extractedData.documentType === 'bill_of_supply') {
+                        setExtractedData({
+                          ...extractedData,
+                          taxableAmount: val,
+                          totalAmount: val,
+                          cgst: 0,
+                          sgst: 0,
+                          igst: 0,
+                          isArithmeticValid: true
+                        });
+                      } else {
+                        const gst = Math.round((val * extractedData.gstRate) / 100 * 100) / 100;
+                        setExtractedData({ 
+                          ...extractedData, 
+                          taxableAmount: val,
+                          cgst: Math.round((gst / 2) * 100) / 100,
+                          sgst: Math.round((gst / 2) * 100) / 100,
+                          totalAmount: Math.round((val + gst) * 100) / 100,
+                          itcAmount: extractedData.itcEligibility.includes('Eligible') ? gst : 0,
+                          isArithmeticValid: true
+                        });
+                      }
                     }}
                     className={`w-full mt-1 px-3 py-2 rounded-lg font-mono outline-none border transition ${
                       !extractedData.taxableAmount || extractedData.taxableAmount === 0
@@ -1530,6 +1644,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                   </div>
                   <select 
                     value={extractedData.gstRate}
+                    disabled={extractedData.documentType === 'bill_of_supply'}
                     onChange={(e) => {
                       const rate = Number(e.target.value);
                       const gst = Math.round((extractedData.taxableAmount * rate) / 100 * 100) / 100;
@@ -1543,9 +1658,9 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                         isArithmeticValid: true
                       });
                     }}
-                    className="w-full mt-1 px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 focus:border-rose-500 outline-none"
+                    className="w-full mt-1 px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 focus:border-rose-500 outline-none disabled:opacity-60"
                   >
-                    <option value={0}>0% (Nil / Exempt)</option>
+                    <option value={0}>0% (Nil / Exempt / Bill of Supply)</option>
                     <option value={5}>5% GST (2.5% + 2.5%)</option>
                     <option value={12}>12% GST (6% + 6%)</option>
                     <option value={18}>18% GST (9% + 9%)</option>
@@ -1626,6 +1741,96 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
             </div>
 
           </div>
+
+          {/* Itemized Line Items Expandable Section */}
+          {extractedData.lineItems && extractedData.lineItems.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 overflow-hidden shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setShowLineItems(!showLineItems)}
+                className="w-full px-4 py-3 bg-slate-100/80 hover:bg-slate-200/70 transition flex items-center justify-between text-xs font-bold text-slate-800 cursor-pointer"
+              >
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Layers className="w-4 h-4 text-rose-600" />
+                  <span>Itemized Line Items Breakdown ({extractedData.lineItems.length} items extracted)</span>
+                  {(() => {
+                    const rates = [...new Set(extractedData.lineItems.map(i => i.gstRate).filter(r => r !== undefined && r !== null))];
+                    if (rates.length > 1) {
+                      return (
+                        <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">
+                          Multi-Rate ({rates.map(r => `${r}%`).join(' + ')})
+                        </span>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+                <div className="flex items-center gap-1.5 text-slate-500">
+                  <span className="text-[11px] font-semibold">{showLineItems ? 'Hide Lines' : 'View Itemized Table'}</span>
+                  {showLineItems ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+              </button>
+
+              {showLineItems && (
+                <div className="p-4 space-y-3">
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-2xs">
+                    <table className="w-full text-left text-xs text-slate-700">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                        <tr>
+                          <th className="py-2.5 px-3">#</th>
+                          <th className="py-2.5 px-3">Description</th>
+                          <th className="py-2.5 px-3">HSN/SAC</th>
+                          <th className="py-2.5 px-3 text-right">Qty</th>
+                          <th className="py-2.5 px-3 text-right">Unit Price</th>
+                          <th className="py-2.5 px-3 text-right">Taxable (₹)</th>
+                          <th className="py-2.5 px-3 text-center">GST Rate</th>
+                          <th className="py-2.5 px-3 text-right">Tax (₹)</th>
+                          <th className="py-2.5 px-3 text-right font-bold">Total (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                        {extractedData.lineItems.map((item, idx) => {
+                          const tax = (item.cgst || 0) + (item.sgst || 0) + (item.igst || 0);
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50/80 transition">
+                              <td className="py-2 px-3 text-slate-400 font-sans">{idx + 1}</td>
+                              <td className="py-2 px-3 font-sans font-medium text-slate-800 max-w-[200px] truncate" title={item.description}>
+                                {item.description || "—"}
+                              </td>
+                              <td className="py-2 px-3 text-slate-500">{item.hsnSac || "—"}</td>
+                              <td className="py-2 px-3 text-right">{item.quantity || 1}</td>
+                              <td className="py-2 px-3 text-right">{item.unitPrice ? `₹${item.unitPrice.toLocaleString('en-IN')}` : "—"}</td>
+                              <td className="py-2 px-3 text-right font-semibold text-slate-900">
+                                ₹{(item.taxableValue || 0).toLocaleString('en-IN')}
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
+                                  {item.gstRate || 0}%
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-right text-rose-700 font-semibold">
+                                ₹{tax.toLocaleString('en-IN')}
+                              </td>
+                              <td className="py-2 px-3 text-right font-bold text-slate-900">
+                                ₹{(item.totalAmount || ((item.taxableValue || 0) + tax)).toLocaleString('en-IN')}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-500 px-1 gap-2 font-medium">
+                    <span>Server-side roll-up ensures arithmetic consistency across all line items</span>
+                    <span className="font-bold text-slate-900">
+                      Authoritative Grand Total: ₹{extractedData.totalAmount?.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {saveError && (
             <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 text-xs px-4 py-2.5">

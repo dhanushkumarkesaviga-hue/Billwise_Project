@@ -29,5 +29,9 @@ public class ChatMessage {
 
     private String content;
 
+    private String username;
+
+    private String merchantId;
+
     private Instant createdAt = Instant.now();
 }

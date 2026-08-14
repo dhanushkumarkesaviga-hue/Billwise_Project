@@ -24,6 +24,10 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { invoiceApi } from '../api';
+import ExpenseCategoryChart from './ExpenseCategoryChart';
+import TopVendorLeaderboard from './TopVendorLeaderboard';
+import InvoiceDateFilter from './InvoiceDateFilter';
+import { useInvoiceDateFilter } from '../hooks/useInvoiceDateFilter';
 
 export default function InvoiceListTable({ 
   invoices = [], 
@@ -35,6 +39,9 @@ export default function InvoiceListTable({
   const { merchantTradeName, role, isSuperAdmin } = useAuth();
   const isAdmin = role === 'ADMIN' || isSuperAdmin;
   const isAccountant = role === 'ACCOUNTANT';
+
+  // Shared Date & Month Filter State (Drives both Analytics and Ledger)
+  const dateFilter = useInvoiceDateFilter(invoices);
 
   const [activeLedgerTab, setActiveLedgerTab] = useState('invoices'); // 'invoices' | 'deletion-requests'
   const [searchTerm, setSearchTerm] = useState('');
@@ -150,7 +157,7 @@ export default function InvoiceListTable({
     }
   };
 
-  const filteredInvoices = invoices.filter(inv => {
+  const filteredInvoices = (dateFilter.filteredInvoices || []).filter(inv => {
     const matchesSearch = 
       (inv.vendorName && inv.vendorName.toLowerCase().includes(searchTerm.toLowerCase())) ||
       (inv.invoiceNumber && inv.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -258,10 +265,9 @@ export default function InvoiceListTable({
                 onClick={handleDeduplicate}
                 disabled={isDeduplicating}
                 className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition disabled:opacity-50"
-                title="Detect & remove duplicate invoice numbers"
               >
-                <CopyCheck className="w-3.5 h-3.5 text-rose-600" />
-                {isDeduplicating ? 'Cleaning...' : 'Deduplicate'}
+                <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${isDeduplicating ? 'animate-spin' : ''}`} />
+                <span>{isDeduplicating ? 'Deduplicating…' : 'Deduplicate Bills'}</span>
               </button>
             )}
 
@@ -323,8 +329,38 @@ export default function InvoiceListTable({
 
       {/* VIEW 1: ALL INVOICES TABLE */}
       {activeLedgerTab === 'invoices' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           
+          {/* Shared Date & Month Filter Toolbar */}
+          <InvoiceDateFilter
+            availableMonths={dateFilter.availableMonths}
+            filterState={dateFilter.filterState}
+            setPreset={dateFilter.setPreset}
+            setCustomRange={dateFilter.setCustomRange}
+            resetFilter={dateFilter.resetFilter}
+            isFiltered={dateFilter.isFiltered}
+            activeLabel={dateFilter.activeLabel}
+            totalPeriodSpend={dateFilter.totalPeriodSpend}
+            totalPeriodCount={dateFilter.totalPeriodCount}
+          />
+
+          {/* 2-Column Synchronized Analytics Grid: Pie Chart (Left) + Top Vendor Leaderboard (Right) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+            <ExpenseCategoryChart 
+              invoices={dateFilter.filteredInvoices} 
+              onOpenScanModal={onOpenScanModal} 
+              title={`Expense Breakdown (${dateFilter.activeLabel})`}
+              subtitle="Category spend share for the selected date range"
+            />
+            <TopVendorLeaderboard 
+              invoices={dateFilter.filteredInvoices} 
+              limit={10} 
+              title={`Top Vendor Leaderboard (${dateFilter.activeLabel})`}
+              subtitle="Highest spend suppliers for the selected date range"
+              onSelectVendor={(vName) => setSearchTerm(vName)}
+            />
+          </div>
+
           {/* Filters Bar */}
           <div className="glass-panel rounded-2xl p-4 flex flex-col md:flex-row gap-3 items-center justify-between">
             <div className="relative w-full md:w-80">

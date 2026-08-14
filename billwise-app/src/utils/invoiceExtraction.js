@@ -923,13 +923,22 @@ function numbersAgree(a, b, tolerance = 0.05) {
 /**
  * Evaluates arithmetic validity for a financial set.
  */
-function evaluateArithmeticSet(financials) {
+function evaluateArithmeticSet(financials, docType) {
   if (!financials) return { isValid: false, errorAmt: 999999 };
   const taxable = Number(financials.taxableAmount) || 0;
   const cgst = Number(financials.cgst) || 0;
   const sgst = Number(financials.sgst) || 0;
   const igst = Number(financials.igst) || 0;
   const total = Number(financials.totalAmount) || 0;
+  const type = docType || financials.documentType || 'tax_invoice';
+
+  if (type === 'bill_of_supply') {
+    // Bill of supply has 0 GST; taxable should equal total
+    if (taxable <= 0 && total <= 0) return { isValid: false, errorAmt: 999999 };
+    const errorAmt = Math.abs(taxable - total);
+    const isValid = errorAmt <= (total * 0.02 + 1.0);
+    return { isValid, errorAmt };
+  }
 
   if (taxable <= 0 && total <= 0) {
     return { isValid: false, errorAmt: 999999 };
@@ -969,6 +978,9 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
       invoiceNumber: '',
       invoiceDate: new Date().toISOString().split('T')[0],
       hsnSac: '',
+      documentType: 'tax_invoice',
+      extractionConfidence: 0,
+      lineItems: [],
       taxableAmount: 0,
       gstRate: 18,
       cgst: 0,
@@ -1000,6 +1012,9 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
 
     return {
       ...regexResult,
+      documentType: regexResult.documentType || 'tax_invoice',
+      extractionConfidence: 0.90,
+      lineItems: [],
       isArithmeticValid: isArith,
       warning: regexResult.warning || (isArith ? null : 'Verify tax calculations'),
       extractionMode: 'regex_only',
@@ -1014,8 +1029,14 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
 
   // Fallback 3: VLM only
   if (!hasRegex && hasVlm) {
-    const arithEval = evaluateArithmeticSet(vlmResult);
-    const confidence = arithEval.isValid ? 95.0 : 88.0;
+    const docType = vlmResult.documentType || 'tax_invoice';
+    const arithEval = evaluateArithmeticSet(vlmResult, docType);
+    let confidence = arithEval.isValid ? 95.0 : 88.0;
+    const vlmConfidence = typeof vlmResult.extractionConfidence === 'number' ? vlmResult.extractionConfidence : 0.90;
+    if (vlmConfidence < 0.5) {
+      confidence = Math.round(vlmConfidence * 100);
+    }
+
     const sources = {};
     const candidates = {};
 
@@ -1033,14 +1054,17 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
       invoiceNumber: vlmResult.invoiceNumber || '',
       invoiceDate: vlmResult.invoiceDate || new Date().toISOString().split('T')[0],
       hsnSac: vlmResult.hsnSac || '',
+      documentType: docType,
+      extractionConfidence: vlmConfidence,
+      lineItems: Array.isArray(vlmResult.lineItems) ? vlmResult.lineItems : [],
       taxableAmount: Number(vlmResult.taxableAmount) || 0,
-      gstRate: Number(vlmResult.gstRate) || 18,
+      gstRate: Number(vlmResult.gstRate) || (docType === 'bill_of_supply' ? 0 : 18),
       cgst: Number(vlmResult.cgst) || 0,
       sgst: Number(vlmResult.sgst) || 0,
       igst: Number(vlmResult.igst) || 0,
       totalAmount: Number(vlmResult.totalAmount) || 0,
       isArithmeticValid: arithEval.isValid,
-      warning: arithEval.isValid ? null : 'Vision model amounts differed from expected GST math',
+      warning: arithEval.isValid ? null : (docType === 'bill_of_supply' ? 'Total does not match subtotal' : 'Vision model amounts differed from expected GST math'),
       extractionMode: 'vlm_only',
       extractionSources: sources,
       candidates,
@@ -1057,6 +1081,10 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
   const extractionSources = {};
   const candidates = {};
   const disagreements = [];
+
+  const docType = vlmResult?.documentType || regexResult?.documentType || 'tax_invoice';
+  const vlmConfidence = typeof vlmResult?.extractionConfidence === 'number' ? vlmResult.extractionConfidence : 0.95;
+  const lineItems = Array.isArray(vlmResult?.lineItems) ? vlmResult.lineItems : [];
 
   // 1. Vendor Name
   let finalVendorName = '';
@@ -1098,8 +1126,8 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
   const regexGstin = (regexResult.gstin || '').toUpperCase().trim();
   const vlmGstin = (vlmResult.gstin || '').toUpperCase().trim();
 
-  const regexGstinValid = regexGstin ? validateGstin(regexGstin).valid : false;
-  const vlmGstinValid = vlmGstin ? validateGstin(vlmGstin).valid : false;
+  const regexGstinValid = regexGstin ? validateGstin(regexGstin).isValid : false;
+  const vlmGstinValid = vlmGstin ? validateGstin(vlmGstin).isValid : false;
 
   if (regexGstin && vlmGstin) {
     if (regexGstin === vlmGstin) {
@@ -1135,7 +1163,7 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
     candidates.gstin = { regexVal: null, vlmVal: null, selected: '', conflict: false };
   }
 
-  const finalGstinValidation = finalGstin ? validateGstin(finalGstin) : { valid: false, gstin: '' };
+  const finalGstinValidation = finalGstin ? validateGstin(finalGstin) : { isValid: false, gstin: '' };
 
   // 3. Invoice Number
   let finalInvoiceNumber = '';
@@ -1228,8 +1256,8 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
   }
 
   // 6. Financials Reconciliation with Arithmetic Cross-Validation Tie-Breaker
-  const regexArith = evaluateArithmeticSet(regexResult);
-  const vlmArith = evaluateArithmeticSet(vlmResult);
+  const regexArith = evaluateArithmeticSet(regexResult, docType);
+  const vlmArith = evaluateArithmeticSet(vlmResult, docType);
 
   const financialFields = ['taxableAmount', 'gstRate', 'cgst', 'sgst', 'igst', 'totalAmount'];
   const finalFinancials = {};
@@ -1295,7 +1323,7 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
   }
 
   // Evaluate final arithmetic validity
-  const overallArith = evaluateArithmeticSet(finalFinancials);
+  const overallArith = evaluateArithmeticSet(finalFinancials, docType);
 
   // Confidence Calculation
   let confidence = 92.0;
@@ -1309,6 +1337,10 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
     confidence = 86.0;
   }
 
+  if (vlmConfidence < 0.5) {
+    confidence = Math.min(confidence, Math.round(vlmConfidence * 100));
+  }
+
   return {
     vendorName: finalVendorName,
     gstin: finalGstin,
@@ -1316,9 +1348,12 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
     invoiceNumber: finalInvoiceNumber,
     invoiceDate: finalInvoiceDate,
     hsnSac: finalHsnSac,
+    documentType: docType,
+    extractionConfidence: vlmConfidence,
+    lineItems,
     ...finalFinancials,
     isArithmeticValid: overallArith.isValid,
-    warning: overallArith.isValid ? null : 'Calculated tax differs slightly from invoice total',
+    warning: overallArith.isValid ? null : (docType === 'bill_of_supply' ? 'Total does not match subtotal' : 'Calculated tax differs slightly from invoice total'),
     extractionMode: 'hybrid',
     extractionSources,
     candidates,

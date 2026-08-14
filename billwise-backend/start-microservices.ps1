@@ -12,7 +12,15 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Get-Process -Name "java" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
-# 2. Verify MongoDB is Running
+# 2. Verify Dual-Database Infrastructure (MySQL + MongoDB)
+$mysqlPort = 3306
+$mysqlActive = Test-NetConnection -ComputerName 127.0.0.1 -Port $mysqlPort -WarningAction SilentlyContinue -InformationLevel Quiet
+if (-not $mysqlActive) {
+    Write-Host "[!] Warning: MySQL not detected on port 3306. Ensure MySQL server is running." -ForegroundColor Yellow
+} else {
+    Write-Host "[OK] MySQL active on port 3306 (powers Auth & Merchant Service)" -ForegroundColor Green
+}
+
 $mongoPort = 27017
 $mongoActive = Test-NetConnection -ComputerName 127.0.0.1 -Port $mongoPort -WarningAction SilentlyContinue -InformationLevel Quiet
 if (-not $mongoActive) {
@@ -20,7 +28,7 @@ if (-not $mongoActive) {
     Start-Process -FilePath "mongod" -ArgumentList "--dbpath=`"$env:USERPROFILE\data\db`"" -WindowStyle Hidden -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 2
 }
-Write-Host "[OK] MongoDB active on port 27017" -ForegroundColor Green
+Write-Host "[OK] MongoDB active on port 27017 (powers Invoice & OCR Extractions)" -ForegroundColor Green
 
 # 3. Resolve Artifact JARs
 $eurekaJar = (Get-ChildItem -Path "$ScriptDir\eureka-server\target" -Filter "eureka-server-*.jar" | Where-Object { $_.Name -notmatch "original" } | Select-Object -First 1).FullName

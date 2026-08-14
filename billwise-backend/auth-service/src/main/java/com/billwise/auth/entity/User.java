@@ -2,6 +2,7 @@ package com.billwise.auth.entity;
 
 import com.billwise.common.entity.Role;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import jakarta.persistence.*;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -9,13 +10,11 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.index.Indexed;
-import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
 
-@Document(collection = "users")
+@Entity
+@Table(name = "users")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -23,31 +22,37 @@ import java.time.Instant;
 public class User {
 
     @Id
+    @GeneratedValue(strategy = GenerationType.UUID)
     private String id;
 
     @NotBlank
-    @Indexed(unique = true)
+    @Column(unique = true, nullable = false)
     private String username;
 
     @NotBlank
     @Email
-    @Indexed(unique = true)
+    @Column(unique = true, nullable = false)
     private String email;
 
     @NotBlank
     @JsonIgnore
+    @Column(nullable = false)
     private String password;
 
     private String fullName;
 
     private String phone;
 
+    @Lob
+    @Column(name = "profile_photo_url", columnDefinition = "LONGTEXT")
     private String profilePhotoUrl;
 
     @NotNull
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
     private Role role;
 
-    @Indexed
+    @Column(name = "merchant_id")
     private String merchantId;
 
     private boolean enabled = true;
@@ -68,6 +73,7 @@ public class User {
 
     private Instant resetOtpExpiresAt;
 
+    @Embedded
     private UserSettings settings = new UserSettings();
 
     private Instant createdAt = Instant.now();

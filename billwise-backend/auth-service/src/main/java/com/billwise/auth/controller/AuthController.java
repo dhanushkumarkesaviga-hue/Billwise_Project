@@ -12,10 +12,13 @@ import com.billwise.auth.entity.User;
 import com.billwise.auth.repository.MerchantRepository;
 import com.billwise.auth.repository.UserRepository;
 import com.billwise.auth.security.UserPrincipal;
+import com.billwise.auth.service.EmailService;
+import com.billwise.auth.service.GoogleTokenVerifierService;
 import com.billwise.common.entity.MerchantStatus;
 import com.billwise.common.entity.Role;
 import com.billwise.common.exception.BadRequestException;
 import com.billwise.common.exception.ResourceNotFoundException;
+import com.billwise.common.exception.UnauthorizedException;
 import com.billwise.common.security.JwtUtils;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +55,7 @@ public class AuthController {
     private final EmailOtpVerificationRepository emailOtpVerificationRepository;
     private final PasswordResetRequestRepository passwordResetRequestRepository;
     private final com.billwise.auth.service.EmailService emailService;
+    private final GoogleTokenVerifierService googleTokenVerifierService;
 
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody AuthRequest request) {
@@ -210,9 +214,16 @@ public class AuthController {
 
     @PostMapping("/google")
     public ResponseEntity<AuthResponse> googleAuth(@Valid @RequestBody com.billwise.auth.dto.AuthDtos.GoogleAuthRequest request) {
-        String email = request.getEmail().trim().toLowerCase();
+        // Cryptographically verify Google ID token against Google's public certificates
+        com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload payload =
+                googleTokenVerifierService.verifyToken(request.getIdToken());
 
-        // Enforce: Google Sign-In is strictly restricted to ADMIN accounts only
+        String email = payload.getEmail().trim().toLowerCase();
+        String name = (String) payload.get("name");
+        String picture = (String) payload.get("picture");
+        String googleId = payload.getSubject();
+
+        // Enforce: Google Sign-In is strictly restricted to ADMIN / SUPER_ADMIN accounts only
         if (request.getRole() != null && request.getRole() != Role.ADMIN && request.getRole() != Role.SUPER_ADMIN) {
             throw new BadRequestException("Google Sign-In is restricted to ADMIN users only. Please sign in with your username and password.");
         }
@@ -227,9 +238,9 @@ public class AuthController {
 
         if (user == null) {
             // Guardrail: Brand-new Google user must complete Merchant Signup (GST KYC review)
-            log.info("Google Sign-In for unregistered email [{}]. Routing to Merchant Signup KYC.", email);
-            String name = request.getName() != null && !request.getName().isBlank() ? request.getName().trim() : email.split("@")[0];
-            return ResponseEntity.ok(AuthResponse.newUser(email, name));
+            log.info("Google Sign-In for verified unregistered email [{}]. Routing to Merchant Signup KYC.", email);
+            String verifiedName = name != null && !name.isBlank() ? name.trim() : email.split("@")[0];
+            return ResponseEntity.ok(AuthResponse.newUser(email, verifiedName));
         }
 
         if (!user.isEnabled()) {
@@ -238,12 +249,12 @@ public class AuthController {
 
         Merchant targetMerchant = null;
 
-        // Existing user signing in via Google
-        if (request.getAvatar() != null && (user.getProfilePhotoUrl() == null || user.getProfilePhotoUrl().isEmpty())) {
-            user.setProfilePhotoUrl(request.getAvatar());
+        // Existing user signing in via verified Google OAuth
+        if (picture != null && (user.getProfilePhotoUrl() == null || user.getProfilePhotoUrl().isEmpty())) {
+            user.setProfilePhotoUrl(picture);
         }
-        if (request.getGoogleId() != null && user.getGoogleId() == null) {
-            user.setGoogleId(request.getGoogleId());
+        if (googleId != null && user.getGoogleId() == null) {
+            user.setGoogleId(googleId);
         }
         userRepository.save(user);
 
@@ -357,23 +368,33 @@ public class AuthController {
                 .or(() -> userRepository.findByEmailIgnoreCase(identifier))
                 .orElseThrow(() -> new BadRequestException("No registered account found matching '" + identifier + "'"));
 
-        // Generate 6-digit numeric OTP
-        String otp = String.format("%06d", new java.util.Random().nextInt(900000) + 100000);
+        // Generate 6-digit numeric OTP (100000–999999) using SecureRandom
+        java.security.SecureRandom secureRandom = new java.security.SecureRandom();
+        String otp = String.format("%06d", 100000 + secureRandom.nextInt(900000));
         user.setResetOtp(otp);
         user.setResetOtpExpiresAt(Instant.now().plus(Duration.ofMinutes(15)));
         userRepository.save(user);
 
-        // Mask email for display: d***h@gmail.com
+        // Dispatch real email via Gmail SMTP (falls back to dev console logger)
+        boolean emailDelivered = emailService.sendPasswordResetOtpEmail(user.getEmail(), otp, 15);
+
+        // Mask email for display: a***n@billwise.app
         String email = user.getEmail();
         String maskedEmail = email;
         int atIdx = email.indexOf('@');
         if (atIdx > 2) {
             maskedEmail = email.charAt(0) + "***" + email.substring(atIdx - 1);
+        } else if (atIdx > 0) {
+            maskedEmail = email.charAt(0) + "***" + email.substring(atIdx);
         }
+
+        String msg = emailDelivered
+                ? "Password reset code sent to your registered email (" + maskedEmail + ")."
+                : "Password reset OTP generated. Please check your inbox or use code for development.";
 
         return ResponseEntity.ok(new com.billwise.auth.dto.AuthDtos.ForgotPasswordResponse(
                 true,
-                "Password reset OTP sent to registered email.",
+                msg,
                 maskedEmail,
                 otp
         ));
@@ -386,12 +407,12 @@ public class AuthController {
                 .or(() -> userRepository.findByEmailIgnoreCase(identifier))
                 .orElseThrow(() -> new BadRequestException("No registered account found."));
 
-        if (user.getResetOtp() == null || !user.getResetOtp().equals(request.getOtp().trim())) {
-            throw new BadRequestException("Invalid OTP code. Please check and try again.");
+        if (user.getResetOtp() == null || !user.getResetOtp().trim().equals(request.getOtp().trim())) {
+            throw new BadRequestException("Invalid OTP code. Please check your email and try again.");
         }
 
         if (user.getResetOtpExpiresAt() == null || user.getResetOtpExpiresAt().isBefore(Instant.now())) {
-            throw new BadRequestException("OTP code has expired. Please request a new OTP.");
+            throw new BadRequestException("OTP code has expired. Please request a new OTP code.");
         }
 
         Map<String, Object> resp = new HashMap<>();
@@ -407,7 +428,7 @@ public class AuthController {
                 .or(() -> userRepository.findByEmailIgnoreCase(identifier))
                 .orElseThrow(() -> new BadRequestException("No registered account found."));
 
-        if (user.getResetOtp() == null || !user.getResetOtp().equals(request.getOtp().trim())) {
+        if (user.getResetOtp() == null || !user.getResetOtp().trim().equals(request.getOtp().trim())) {
             throw new BadRequestException("Invalid or expired OTP code.");
         }
 
@@ -418,7 +439,10 @@ public class AuthController {
         user.setPassword(passwordEncoder.encode(request.getNewPassword()));
         user.setResetOtp(null);
         user.setResetOtpExpiresAt(null);
+        user.setUpdatedAt(Instant.now());
         userRepository.save(user);
+
+        log.info("Password successfully reset via Email OTP for user [{}] ({})", user.getUsername(), user.getRole());
 
         Map<String, Object> resp = new HashMap<>();
         resp.put("success", true);

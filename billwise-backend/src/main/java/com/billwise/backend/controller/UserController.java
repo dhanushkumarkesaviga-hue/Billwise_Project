@@ -52,7 +52,7 @@ public class UserController {
     /**
      * Get user settings (notification preferences, UI theme).
      */
-    @GetMapping("/me/settings")
+    @GetMapping({"/me/settings", "/settings"})
     public ResponseEntity<UserSettingsDto> getSettings(Principal principal) {
         return ResponseEntity.ok(userService.getSettings(principal.getName()));
     }
@@ -60,7 +60,7 @@ public class UserController {
     /**
      * Update user settings.
      */
-    @PutMapping("/me/settings")
+    @PutMapping({"/me/settings", "/settings"})
     public ResponseEntity<UserSettingsDto> updateSettings(
             Principal principal,
             @RequestBody UserSettingsDto request) {

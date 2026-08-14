@@ -43,6 +43,7 @@ public class MerchantService {
     private final JwtUtils jwtUtils;
     private final EmailOtpVerificationRepository emailOtpVerificationRepository;
     private final PasswordResetRequestRepository passwordResetRequestRepository;
+    private final GoogleTokenVerifierService googleTokenVerifierService;
 
     public AuthResponse signupMerchant(MerchantSignupRequest req) {
         String cleanGstin = req.getGstin().trim().toUpperCase();
@@ -70,10 +71,27 @@ public class MerchantService {
             throw new BadRequestException("Contact phone number is mandatory for merchant registration.");
         }
 
-        // Email OTP verification check (Google OAuth signups are pre-verified by Google)
+        // Email verification check: Either cryptographically verified Google ID token or valid Email OTP
         String contactEmail = req.getContactEmail() != null ? req.getContactEmail().trim().toLowerCase() : "";
-        boolean isGooglePreVerified = req.getEmailOtp() != null &&
-                (req.getEmailOtp().equalsIgnoreCase("GOOGLE_VERIFIED") || req.getEmailOtp().equalsIgnoreCase("OAUTH_VERIFIED"));
+        boolean isGooglePreVerified = false;
+
+        if (req.getGoogleIdToken() != null && !req.getGoogleIdToken().trim().isBlank()) {
+            try {
+                com.google.api.client.googleapis.auth.oauth2.GoogleIdToken.Payload tokenPayload =
+                        googleTokenVerifierService.verifyToken(req.getGoogleIdToken());
+                if (tokenPayload.getEmail() != null && tokenPayload.getEmail().trim().equalsIgnoreCase(contactEmail)) {
+                    isGooglePreVerified = true;
+                    log.info("Merchant signup for [{}] authenticated via verified Google ID token.", contactEmail);
+                } else {
+                    throw new BadRequestException("Google ID token email does not match the contact email provided.");
+                }
+            } catch (BadRequestException bre) {
+                throw bre;
+            } catch (Exception e) {
+                log.warn("Invalid Google ID token supplied during merchant registration: {}", e.getMessage());
+                throw new BadRequestException("Invalid or forged Google ID token provided for signup email verification: " + e.getMessage());
+            }
+        }
 
         if (!contactEmail.isBlank() && !isGooglePreVerified) {
             EmailOtpVerification otpRecord = emailOtpVerificationRepository
@@ -92,7 +110,7 @@ public class MerchantService {
                 } else {
                     throw new BadRequestException("Email (" + contactEmail + ") has not been verified via OTP. Please complete email OTP verification before submitting.");
                 }
-            } else if (otpRecord == null) {
+            } else if (otpRecord == null || !otpRecord.isVerified()) {
                 throw new BadRequestException("Email OTP verification is required for " + contactEmail + ". Please click 'Send OTP' and verify.");
             }
         }
@@ -363,6 +381,22 @@ public class MerchantService {
         staff.setUpdatedAt(Instant.now());
         User saved = userRepository.save(staff);
         return toStaffDto(saved);
+    }
+
+    public void deleteStaffUser(String merchantId, String staffUserId) {
+        User staff = userRepository.findById(staffUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("Staff user not found: " + staffUserId));
+
+        if (merchantId == null || !merchantId.equals(staff.getMerchantId())) {
+            throw new BadRequestException("You do not have permission to delete this user.");
+        }
+
+        if (staff.getRole() == Role.ADMIN || staff.getRole() == Role.SUPER_ADMIN) {
+            throw new BadRequestException("Cannot delete an Administrator account.");
+        }
+
+        userRepository.delete(staff);
+        log.info("Staff accountant [{}] (ID: {}) permanently deleted from merchant [{}]", staff.getUsername(), staffUserId, merchantId);
     }
 
     private StaffUserDto toStaffDto(User u) {

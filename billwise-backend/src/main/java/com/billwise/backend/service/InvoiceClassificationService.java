@@ -83,7 +83,7 @@ public class InvoiceClassificationService {
         // we only expect a short category label back, not prose.
         Map<String, Object> generationConfig = Map.of(
                 "temperature", 0.1,
-                "maxOutputTokens", 20
+                "maxOutputTokens", 500
         );
 
         return Map.of(
