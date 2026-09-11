@@ -45,6 +45,10 @@ spring:
           uri: ${INVOICE_SERVICE_URI:http://localhost:8083}
           predicates:
             - Path=/api/copilot/**
+        - id: invoice-service-sales-invoices
+          uri: ${INVOICE_SERVICE_URI:http://localhost:8083}
+          predicates:
+            - Path=/api/sales-invoices/**
 
       globalcors:
         cors-configurations:

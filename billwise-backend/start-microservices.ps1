@@ -45,23 +45,35 @@ if (-not $eurekaJar -or -not $gatewayJar -or -not $authJar -or -not $invoiceJar)
     $invoiceJar = (Get-ChildItem -Path "$ScriptDir\invoice-service\target" -Filter "invoice-service-*.jar" | Where-Object { $_.Name -notmatch "original" } | Select-Object -First 1).FullName
 }
 
-# 4. Start Eureka Server (Port 8761)
-Write-Host "`n[1/4] Starting Eureka Discovery Server (Port 8761)..." -ForegroundColor Cyan
+# 4. Start ML Invoice Classifier Microservice (Port 8000)
+$mlPort = 8000
+$mlActive = Test-NetConnection -ComputerName 127.0.0.1 -Port $mlPort -WarningAction SilentlyContinue -InformationLevel Quiet
+if (-not $mlActive) {
+    Write-Host "`n[1/5] Starting Custom ML Category Classifier (Port 8000)..." -ForegroundColor Cyan
+    $pythonCmd = if (Get-Command "py" -ErrorAction SilentlyContinue) { "py" } else { "python" }
+    Start-Process -FilePath $pythonCmd -ArgumentList "serve.py" -WorkingDirectory "$ScriptDir\ml" -WindowStyle Minimized -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 3
+} else {
+    Write-Host "[OK] ML Classifier Microservice already active on port 8000" -ForegroundColor Green
+}
+
+# 5. Start Eureka Server (Port 8761)
+Write-Host "`n[2/5] Starting Eureka Discovery Server (Port 8761)..." -ForegroundColor Cyan
 $pEureka = Start-Process -FilePath "java" -ArgumentList "-Djava.net.preferIPv4Stack=true", "-jar", "`"$eurekaJar`"" -PassThru -NoNewWindow
 Start-Sleep -Seconds 8
 
-# 5. Start Auth & Merchant Service (Port 8082)
-Write-Host "[2/4] Starting Auth & Merchant Service (Port 8082)..." -ForegroundColor Cyan
+# 6. Start Auth & Merchant Service (Port 8082)
+Write-Host "[3/5] Starting Auth & Merchant Service (Port 8082)..." -ForegroundColor Cyan
 $pAuth = Start-Process -FilePath "java" -ArgumentList "-Djava.net.preferIPv4Stack=true", "-jar", "`"$authJar`"" -PassThru -NoNewWindow
 Start-Sleep -Seconds 6
 
-# 6. Start Invoice & Compliance Service (Port 8083)
-Write-Host "[3/4] Starting Invoice & Compliance Service (Port 8083)..." -ForegroundColor Cyan
+# 7. Start Invoice & Compliance Service (Port 8083)
+Write-Host "[4/5] Starting Invoice & Compliance Service (Port 8083)..." -ForegroundColor Cyan
 $pInvoice = Start-Process -FilePath "java" -ArgumentList "-Djava.net.preferIPv4Stack=true", "-jar", "`"$invoiceJar`"" -PassThru -NoNewWindow
 Start-Sleep -Seconds 5
 
-# 7. Start API Gateway (Port 8081)
-Write-Host "[4/4] Starting Spring Cloud API Gateway (Port 8081)..." -ForegroundColor Cyan
+# 8. Start API Gateway (Port 8081)
+Write-Host "[5/5] Starting Spring Cloud API Gateway (Port 8081)..." -ForegroundColor Cyan
 $pGateway = Start-Process -FilePath "java" -ArgumentList "-Djava.net.preferIPv4Stack=true", "-jar", "`"$gatewayJar`"" -PassThru -NoNewWindow
 Start-Sleep -Seconds 5
 
@@ -72,6 +84,7 @@ Write-Host "  Eureka Registry : http://localhost:8761" -ForegroundColor Yellow
 Write-Host "  API Gateway     : http://localhost:8081" -ForegroundColor Yellow
 Write-Host "  Auth Service    : http://localhost:8082" -ForegroundColor Yellow
 Write-Host "  Invoice Service : http://localhost:8083" -ForegroundColor Yellow
+Write-Host "  ML Classifier   : http://localhost:8000" -ForegroundColor Yellow
 Write-Host "  React Frontend  : http://localhost:3000" -ForegroundColor Yellow
 Write-Host "========================================================" -ForegroundColor Green
 Write-Host "Microservices running in background.`n"
@@ -79,3 +92,4 @@ Write-Host "Microservices running in background.`n"
 while ($true) {
     Start-Sleep -Seconds 60
 }
+

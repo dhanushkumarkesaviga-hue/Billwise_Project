@@ -16,7 +16,10 @@ import {
   X,
   ChevronRight,
   Shield,
-  Building2
+  Building2,
+  Calculator,
+  Receipt,
+  FileSpreadsheet
 } from 'lucide-react';
 
 const ROLE_STYLES = {
@@ -185,6 +188,42 @@ export default function Navbar({
                     {totalInvoicesCount}
                   </span>
                 )}
+              </button>
+
+              <button
+                onClick={() => handleTabClick('sales')}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition ${
+                  activeTab === 'sales'
+                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold'
+                }`}
+              >
+                <Receipt className={`w-4 h-4 shrink-0 ${activeTab === 'sales' ? 'text-rose-600' : 'text-slate-400'}`} />
+                <span>Sales (Output GST)</span>
+              </button>
+
+              <button
+                onClick={() => handleTabClick('gstr3b')}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition ${
+                  activeTab === 'gstr3b'
+                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold'
+                }`}
+              >
+                <Calculator className={`w-4 h-4 shrink-0 ${activeTab === 'gstr3b' ? 'text-rose-600' : 'text-slate-400'}`} />
+                <span>GSTR-3B Netting</span>
+              </button>
+
+              <button
+                onClick={() => handleTabClick('gstr1')}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-bold transition ${
+                  activeTab === 'gstr1'
+                    ? 'bg-rose-50 text-rose-700 border border-rose-200/80 shadow-2xs font-extrabold'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100 font-semibold'
+                }`}
+              >
+                <FileSpreadsheet className={`w-4 h-4 shrink-0 ${activeTab === 'gstr1' ? 'text-rose-600' : 'text-slate-400'}`} />
+                <span>GSTR-1 Reports</span>
               </button>
 
               <button

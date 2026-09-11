@@ -30,13 +30,15 @@ ALLOWED_CATEGORIES = [
 # Domain-specific templates, vendors, line items, and SAC/HSN codes per category
 CATEGORY_PROFILES = {
     "Raw Materials": {
-        "hsn": ["7208", "731815", "390110", "2804", "5208", "7601", "3204", "390720", "2915"],
+        "hsn": ["7208", "731815", "390110", "2804", "5208", "7601", "3204", "390720", "2915", "8207", "8480"],
         "vendors": [
             "Mahavir Industrial Hardware & Tools", "Surya Polymer Compounds", "Jindal Steel & Alloys Ltd",
             "Bharat Chemicals & Polymers", "Tata Pigments & Metals", "National Fasteners & Bolts",
             "Shree Balaji Textile Yarn Mills", "Riddhi Siddhi Resin & Adhesive Co", "Universal Aluminium Extrusions",
             "Gujarat Petrochem Intermediates", "Apex Industrial Raw Materials Pvt Ltd", "Vardhman Yarns & Threads",
-            "Sudarshan Chemical Industries", "Hindalco Metal Works", "Supreme Plastic Pellets & Resins"
+            "Sudarshan Chemical Industries", "Hindalco Metal Works", "Supreme Plastic Pellets & Resins",
+            "Manufacturing & Supply of Precision Press Tool & Room Component", "Shree Ganesh Tool Room & Moulds",
+            "Precision Tooling & Components Pvt Ltd", "Standard Metal Stamping & Dies", "Balaji Fasteners & Hardware"
         ],
         "items": [
             ("Stainless steel fasteners M8 & industrial hardware batch #3", "731815", 84000),
@@ -50,16 +52,21 @@ CATEGORY_PROFILES = {
             ("Acetic Acid Glacial industrial solvent bulk drum", "2915", 38500),
             ("Copper wire rods 8mm electrolytic tough pitch", "7408", 185000),
             ("Mild Steel angle bars & channel sections 50x50x6", "7216", 72000),
-            ("Polypropylene Homopolymer (PP) raffia grade bags", "3902", 91000)
+            ("Polypropylene Homopolymer (PP) raffia grade bags", "3902", 91000),
+            ("Precision Press Tool Dies & Punches alloy steel D2/HCHCR", "8207", 145000),
+            ("Tool room components, guide pillars, bushes & ejector pins", "8480", 52000),
+            ("Sheet metal stamping raw sheet strip coils 1.2mm", "7211", 68000)
         ]
     },
     "Capital Goods & Office Assets": {
-        "hsn": ["847130", "940330", "847141", "844332", "841510", "847989", "852852", "841869"],
+        "hsn": ["847130", "940330", "847141", "844332", "841510", "847989", "852852", "841869", "851712", "851713", "851762"],
         "vendors": [
             "ErgoFurniture Works India", "Dell Technologies India Pvt Ltd", "HP India Sales Private Limited",
             "Lenovo Enterprise Solutions", "Godrej & Boyce Interio Division", "Canon India Business Machines",
             "Daikin Airconditioning India", "Featherlite Workspaces Pvt Ltd", "Siemens Heavy Industrial Machinery",
-            "Samsung Commercial Displays", "Kirloskar Diesel Generator Sets", "Voltas Commercial Cooling"
+            "Samsung Commercial Displays", "Kirloskar Diesel Generator Sets", "Voltas Commercial Cooling",
+            "Ace Mobile Manufacturer Pvt Ltd", "Foxconn Technology India", "Dixon Technologies Consumer Electronics",
+            "Apple India Retail & Enterprise", "Xiaomi Technology India", "OnePlus Enterprise Devices"
         ],
         "items": [
             ("Ergonomic mesh chairs and standing motorized desks for team", "940330", 120000),
@@ -71,7 +78,10 @@ CATEGORY_PROFILES = {
             ("Samsung 65-inch 4K UHD Commercial Conference Room Interactive Display", "852852", 95000),
             ("Heavy CNC vertical milling machine tooling fixture", "845710", 850000),
             ("Kirloskar 25 kVA Silent DG Set generator with AMF panel", "850211", 280000),
-            ("High-density motorized mobile compactor storage racking system", "940320", 160000)
+            ("High-density motorized mobile compactor storage racking system", "940320", 160000),
+            ("Enterprise 5G Smartphones & Handsets 10 units for field ops", "851713", 195000),
+            ("Smart Mobile Devices, barcode scanners & industrial mobile terminals", "851712", 88000),
+            ("Cisco Gigabit Ethernet switch router & telecom gateway hardware", "851762", 112000)
         ]
     },
     "Cloud Infrastructure": {
@@ -81,7 +91,8 @@ CATEGORY_PROFILES = {
             "Microsoft Azure Cloud Infrastructure", "Google Cloud India Private Limited",
             "DigitalOcean India Cloud Services", "Cloudflare Global Edge Networks",
             "Hetzner Online Compute Services", "E2E Networks Cloud Platform India",
-            "Linode Akamai Cloud Infrastructure", "Tata Communications IZO Cloud Services"
+            "Linode Akamai Cloud Infrastructure", "Tata Communications IZO Cloud Services",
+            "CtrlS Datacenters Cloud Hosting", "Yotta Data Services Private Limited"
         ],
         "items": [
             ("Monthly EC2 compute clusters, RDS PostgreSQL Multi-AZ & S3 Storage", "998313", 45000),
@@ -95,12 +106,14 @@ CATEGORY_PROFILES = {
         ]
     },
     "Software & Subscriptions": {
-        "hsn": ["998315", "998314", "998319"],
+        "hsn": ["998315", "998314", "998319", "998313"],
         "vendors": [
             "CloudScale Analytics Inc", "Atlassian Software Systems India", "GitHub Enterprise Services LLC",
             "Slack Technologies Salesforce India", "Zoho Corporation Private Limited", "JetBrains s.r.o.",
             "Adobe Systems India Private Limited", "Notion Labs Workspace Software", "Figma Design Platform",
-            "Docker Inc Container Subscription", "Intuit QuickBooks Online India", "Datadog Monitoring Platform"
+            "Docker Inc Container Subscription", "Intuit QuickBooks Online India", "Datadog Monitoring Platform",
+            "NextGen NextGen Services", "SLN Softwares & IT Solutions", "InfoSys Digital Solutions",
+            "Wipro SaaS Platforms", "Innovatech Software Development & Subscriptions"
         ],
         "items": [
             ("AI Business Intelligence monthly plan - 25 user seats", "998315", 18500),
@@ -112,7 +125,9 @@ CATEGORY_PROFILES = {
             ("Adobe Creative Cloud Enterprise annual all apps subscription", "998315", 96000),
             ("Figma Organization tier design system license 10 editors", "998315", 28000),
             ("Datadog infrastructure APM synthetic monitoring SaaS subscription", "998315", 62000),
-            ("Postman Enterprise API platform team license", "998315", 34000)
+            ("Postman Enterprise API platform team license", "998315", 34000),
+            ("Enterprise Software License, portal maintenance & user subscription", "998315", 48000),
+            ("Web Application SaaS Platform maintenance & cloud software subscription", "998314", 32000)
         ]
     },
     "Freight & Transport": {
@@ -121,7 +136,8 @@ CATEGORY_PROFILES = {
             "National Logistics & Freight Solutions", "Blue Dart Express Limited", "VRL Logistics Ltd",
             "Delhivery Express Supply Chain", "TCI Freight Transport Corporation of India",
             "Safechem Cargo Movers Pvt Ltd", "Gati Kintetsu Express Logistics", "Allcargo Freight Forwarders",
-            "DTDC Courier & Cargo Services", "Container Corporation of India (CONCOR)"
+            "DTDC Courier & Cargo Services", "Container Corporation of India (CONCOR)",
+            "Western Carriers India Ltd", "Speedage Express Logistics", "Southern Roadways Transport"
         ],
         "items": [
             ("Goods transport agency charges for North Zone delivery full truck load", "996511", 28500),
@@ -131,7 +147,8 @@ CATEGORY_PROFILES = {
             ("Hydraulic axle trailer heavy machinery transport Bangalore to Pune", "996511", 115000),
             ("Refrigerated reefer container cold chain logistics transport", "996511", 58000),
             ("Local tempo transit and carton loading / unloading cartage", "996511", 8200),
-            ("Express document & sample docket courier air tariff across India", "996512", 4500)
+            ("Express document & sample docket courier air tariff across India", "996512", 4500),
+            ("Full truckload road freight transportation and delivery charges", "996511", 38000)
         ]
     },
     "Food & Entertainment": {
@@ -239,7 +256,8 @@ CATEGORY_PROFILES = {
             "Metro Print House", "Staples Office Supplies India", "Navneet Education Limited",
             "JK Paper Mills Stationery", "Kores India Office Products", "Camlin Kokuyo Stationery Ltd",
             "Neelgagan Paper & Forms", "Falcon Office Automation Stationery",
-            "Printech Corporate Stationers", "Lotus Office Essentials Pvt Ltd"
+            "Printech Corporate Stationers", "Lotus Office Essentials Pvt Ltd",
+            "SITHY VINAYAGAR TRADERS", "Sri Lakshmi Paper & Stationery Mart", "Balaji General Store"
         ],
         "items": [
             ("Branded brochures, visiting cards & packaging labels customized printing", "491110", 8500),
@@ -249,7 +267,8 @@ CATEGORY_PROFILES = {
             ("Laser printer toner cartridges HP 88A / Canon 337 6 units", "844399", 14500),
             ("Custom printed letterheads, corporate envelopes & ID card lanyards", "491110", 7200),
             ("Thermal paper rolls for billing POS machines 100 rolls box", "481190", 2900),
-            ("Document filing folders, plastic poly pockets & box files 100 pcs", "392610", 4100)
+            ("Document filing folders, plastic poly pockets & box files 100 pcs", "392610", 4100),
+            ("General stationery supplies, registers, ledger books & packaging tape", "4820", 4900)
         ]
     },
     "Insurance": {
@@ -401,29 +420,31 @@ def generate_invoice_text(category, index, profile):
     
     header_style = random.choice([
         "TAX INVOICE",
+        "=== [PAGE 1 OF 1] ===\nTAX INVOICE Original for Recipient",
+        "=== [PAGE 1 OF 2] ===\nTax Invoice",
         "ORIGINAL FOR RECIPIENT - TAX INVOICE",
         "GST TAX INVOICE",
-        "COMMERCIAL TAX INVOICE"
+        "COMMERCIAL TAX INVOICE",
+        "Tax Invoice | Delivery Note | Dated",
+        "TAX INVOICE (ORIGINAL FOR RECIPIENT)"
     ])
     
     # Introduce OCR variability and noise
-    text = f"""==================================================
-{header_style}
-==================================================
+    text = f"""{header_style}
 Supplier / Vendor: {vendor}
 Address: Industrial Area, {state_name}, India
-GSTIN: {gstin} | PAN: {gstin[2:12]}
-State / State Code: {state_name} ({state_code})
+GSTIN/UIN: {gstin} | PAN: {gstin[2:12]}
+State Name / State Code: {state_name} ({state_code})
 
-Invoice No: {inv_num_format}
-Invoice Date: {date_str}
+Invoice No: {inv_num_format} | Mode/Terms of Payment: 30 Days
+Invoice Date / Dated: {date_str}
 Reverse Charge (RCM): {'Yes' if category == 'Freight & Transport' and random.random() > 0.5 else 'No'}
 Place of Supply: {state_name} ({state_code})
 
-Billed To / Recipient:
+Billed To / Recipient / Name of the Customer:
 BillWise Enterprises Private Limited
-GSTIN: 27AAACB1234F1Z5
-State: Maharashtra (27)
+Address: Plot No 12, Industrial Estate, Mumbai, Maharashtra
+GSTIN: 27AAACB1234F1Z5 | State: Maharashtra (27)
 
 --------------------------------------------------
 LINE ITEMS & PARTICULARS
@@ -456,7 +477,7 @@ Authorized Signatory for {vendor}
 def main():
     print("Generating comprehensive labeled dataset for BillWise Invoice Classifier...")
     
-    target_samples_per_class = 50  # 15 classes * 50 = 750 samples
+    target_samples_per_class = 120  # 15 classes * 120 = 1800 samples
     dataset = []
     
     for category in ALLOWED_CATEGORIES:

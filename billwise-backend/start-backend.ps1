@@ -1,8 +1,9 @@
-# BillWise Backend Startup Script
+﻿# BillWise Backend Startup Script
 $ErrorActionPreference = "Stop"
 
 $backendDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 Set-Location -Path $backendDir
+$backendDirForward = $backendDir.Replace('\', '/')
 
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "BillWise Spring Boot Backend Launcher" -ForegroundColor Cyan
@@ -36,7 +37,7 @@ $lombokJar = ""
 if (Test-Path "$backendDir\run-args.txt") {
     $lines = Get-Content "$backendDir\run-args.txt"
     if ($lines.Length -ge 2 -and $lines[1].Length -gt 100) {
-        $cp = $lines[1]
+        $cp = $lines[1].Trim('"').Replace('\', '/')
         $lombokJar = ($cp -split ";" | Where-Object { $_ -match "lombok" } | Select-Object -First 1)
     }
 }
@@ -48,32 +49,33 @@ if (-not $cp -or -not $lombokJar) {
     foreach ($pat in $patterns) {
         $found = $allJars | Where-Object { $_.Name -match $pat } | Select-Object -First 1
         if ($found) {
-            $matchedJars += $found.FullName
+            $matchedJars += $found.FullName.Replace('\', '/')
         }
     }
-    $cp = ($matchedJars -join ";") + ";$backendDir\target\classes"
+    $cp = ($matchedJars -join ";") + ";$backendDirForward/target/classes"
     $lombokJar = $matchedJars | Where-Object { $_ -match "lombok" } | Select-Object -First 1
-    Set-Content -Path "$backendDir\run-args.txt" -Value "-cp`n$cp`ncom.billwise.backend.BillwiseBackendApplication"
+    Set-Content -Path "$backendDir\run-args.txt" -Value @("-cp", "`"$cp`"", "com.billwise.backend.BillwiseBackendApplication")
 }
 
 # 3. Compile Java source files with Lombok & -parameters
 Write-Host "Compiling Java source files with Lombok and -parameters flag..." -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path "$backendDir\target\classes" | Out-Null
 Copy-Item -Path "$backendDir\src\main\resources\*" -Destination "$backendDir\target\classes" -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item -Path "$backendDir\src\main\resources\application.properties" -Destination "$backendDir\target\classes\application.properties" -Force -ErrorAction SilentlyContinue
 
-$javaFiles = (Get-ChildItem -Path "$backendDir\src\main\java" -Filter "*.java" -Recurse | Select-Object -ExpandProperty FullName)
-$compileArgs = @("-encoding", "UTF-8", "-parameters", "-cp", $cp)
+$javaFiles = (Get-ChildItem -Path "$backendDir\src\main\java" -Filter "*.java" -Recurse | Select-Object -ExpandProperty FullName | ForEach-Object { $_.Replace('\', '/') })
+$compileArgs = @("-encoding", "UTF-8", "-parameters", "-cp", "`"$cp`"")
 if ($lombokJar) {
-    $compileArgs += @("-processorpath", $lombokJar)
+    $compileArgs += @("-processorpath", "`"$lombokJar`"")
 }
-$compileArgs += @("-d", "$backendDir\target\classes")
-$compileArgs += $javaFiles
+$compileArgs += @("-d", "`"$backendDirForward/target/classes`"")
+$compileArgs += ($javaFiles | ForEach-Object { "`"$_`"" })
 
 Set-Content -Path "$backendDir\compile-all.txt" -Value $compileArgs
-javac "@$backendDir\compile-all.txt"
+javac "@$backendDirForward/compile-all.txt"
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Compilation failed."
 }
 
 Write-Host "Launching BillWise Spring Boot Application on port 8081..." -ForegroundColor Green
-java "@$backendDir\run-args.txt"
+java "@$backendDirForward/run-args.txt"

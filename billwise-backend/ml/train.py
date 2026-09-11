@@ -69,10 +69,11 @@ def train_model(texts, categories):
             sublinear_tf=True,
             strip_accents='unicode',
             min_df=1,
-            max_features=15000
+            token_pattern=r'(?u)\b[A-Za-z0-9_#/-]{2,}\b',
+            max_features=25000
         )),
         ('clf', LogisticRegression(
-            C=5.0,
+            C=10.0,
             max_iter=1000,
             class_weight='balanced',
             random_state=42

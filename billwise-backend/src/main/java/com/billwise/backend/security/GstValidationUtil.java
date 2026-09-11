@@ -108,4 +108,14 @@ public final class GstValidationUtil {
     public static String getStateName(String stateCode) {
         return STATE_CODES.getOrDefault(stateCode, "Unknown State");
     }
+
+    public static String getStateFromStateCode(String stateCode) {
+        if (stateCode == null) return "Unknown";
+        return STATE_CODES.getOrDefault(stateCode.trim(), "Other State/UT (" + stateCode + ")");
+    }
+
+    public static String extractStateCode(String gstin) {
+        if (gstin == null || gstin.trim().length() < 2) return "";
+        return gstin.trim().substring(0, 2);
+    }
 }

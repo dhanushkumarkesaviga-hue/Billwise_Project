@@ -29,7 +29,14 @@ public final class InvoiceCategories {
     );
 
     public static final String FALLBACK_CATEGORY = "Other";
+    public static final String DEFAULT_CATEGORY = "Other";
+
+    public static boolean isValid(String category) {
+        if (category == null) return false;
+        return ALLOWED_CATEGORIES.stream().anyMatch(c -> c.equalsIgnoreCase(category.trim()));
+    }
 
     private InvoiceCategories() {
     }
 }
+

@@ -17,10 +17,10 @@ import java.util.Date;
 @Component
 public class JwtUtil {
 
-    @Value("${jwt.secret}")
+    @Value("${jwt.secret:billwise-dev-only-secret-key-change-me-in-production-1234567890}")
     private String secret;
 
-    @Value("${jwt.expiration-ms}")
+    @Value("${jwt.expiration-ms:86400000}")
     private long expirationMs;
 
     private SecretKey key() {

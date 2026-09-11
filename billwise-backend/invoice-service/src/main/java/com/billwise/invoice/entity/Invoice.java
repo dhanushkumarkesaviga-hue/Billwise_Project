@@ -34,8 +34,10 @@ public class Invoice {
     private String invoiceNumber;
 
     @NotNull
+    @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.billwise.common.util.FlexibleLocalDateDeserializer.class)
     private LocalDate invoiceDate;
 
+    @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.billwise.common.util.FlexibleLocalDateDeserializer.class)
     private LocalDate dueDate;
 
     private String category;

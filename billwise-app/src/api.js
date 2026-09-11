@@ -491,3 +491,57 @@ export const copilotApi = {
   clearHistory: (sessionId) =>
     fetch(`${API_BASE}/copilot/history/${sessionId}`, { method: 'DELETE', headers: { ...authHeaders() } }).then(r => handleResponse(r, false)),
 };
+
+export const salesInvoiceApi = {
+  getAll: (params = {}) => {
+    const query = new URLSearchParams();
+    if (params.from) query.append('from', params.from);
+    if (params.to) query.append('to', params.to);
+    if (params.status) query.append('status', params.status);
+    if (params.supplyType) query.append('supplyType', params.supplyType);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return fetch(`${API_BASE}/sales-invoices${qs}`, { headers: { ...authHeaders() } }).then(r => handleResponse(r, false));
+  },
+
+  getById: (id) =>
+    fetch(`${API_BASE}/sales-invoices/${id}`, { headers: { ...authHeaders() } }).then(r => handleResponse(r, false)),
+
+  create: (invoice) =>
+    fetch(`${API_BASE}/sales-invoices`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(invoice),
+    }).then(r => handleResponse(r, false)),
+
+  update: (id, invoice) =>
+    fetch(`${API_BASE}/sales-invoices/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(invoice),
+    }).then(r => handleResponse(r, false)),
+
+  remove: (id) =>
+    fetch(`${API_BASE}/sales-invoices/${id}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    }).then(r => handleResponse(r, false)),
+
+  getStats: () =>
+    fetch(`${API_BASE}/sales-invoices/stats`, { headers: { ...authHeaders() } }).then(r => handleResponse(r, false)),
+
+  getGstr3bSummary: (from, to) => {
+    const query = new URLSearchParams();
+    if (from) query.append('from', from);
+    if (to) query.append('to', to);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return fetch(`${API_BASE}/sales-invoices/gstr3b-summary${qs}`, { headers: { ...authHeaders() } }).then(r => handleResponse(r, false));
+  },
+
+  getGstr1Summary: (from, to) => {
+    const query = new URLSearchParams();
+    if (from) query.append('from', from);
+    if (to) query.append('to', to);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return fetch(`${API_BASE}/sales-invoices/gstr1-summary${qs}`, { headers: { ...authHeaders() } }).then(r => handleResponse(r, false));
+  },
+};

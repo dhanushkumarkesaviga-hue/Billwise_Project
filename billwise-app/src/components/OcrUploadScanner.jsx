@@ -28,11 +28,18 @@ import {
   HelpCircle,
   AlertTriangle,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Receipt
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { createWorker } from 'tesseract.js';
-import { invoiceApi } from '../api';
+import { invoiceApi, salesInvoiceApi } from '../api';
+import { 
+  INDIAN_STATE_CODES, 
+  calculateGstBreakdown, 
+  extractStateCode, 
+  getStateName 
+} from '../utils/gstUtils';
 import { 
   determinePageSequence, 
   mergeOrderedOcrTexts 
@@ -40,7 +47,8 @@ import {
 import { 
   extractInvoiceFields, 
   reconcileExtractionResults,
-  cleanOcrText 
+  cleanOcrText,
+  normalizeDateString
 } from '../utils/invoiceExtraction';
 import { callVlmExtraction } from '../utils/vlmExtraction';
 
@@ -180,7 +188,13 @@ function CandidateFieldBadge({
   return null;
 }
 
-export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
+export default function OcrUploadScanner({ 
+  onInvoiceScanned, 
+  onSalesInvoiceScanned,
+  onClose,
+  initialScanMode = 'purchase'
+}) {
+  const [scanMode, setScanMode] = useState(initialScanMode); // 'purchase' | 'sales'
   const [uploadedFiles, setUploadedFiles] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState(0);
@@ -207,7 +221,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
   const videoRef = useRef(null);
   const mediaStreamRef = useRef(null);
 
-  const scanStepsList = [
+  const purchaseScanStepsList = [
     "Initializing Hybrid AI Engine (Tesseract OCR + Local Ollama Vision)...",
     "Pre-processing image & running parallel optical text + vision models...",
     "Analyzing document structure & calculating page sequence scores...",
@@ -215,6 +229,64 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
     "Classifying expense category via BillWise ML Model...",
     "Validating Section 17(5) Input Tax Credit (ITC) eligibility..."
   ];
+
+  const salesScanStepsList = [
+    "Initializing Hybrid AI Engine (Tesseract OCR + Local Ollama Vision)...",
+    "Pre-processing image & running parallel optical text + vision models...",
+    "Extracting buyer details, customer GSTIN & POS invoice sequence...",
+    "Computing output CGST/SGST/IGST tax liability & HSN codes...",
+    "Determining GSTR-1 supply classification (B2B, B2C Large, B2C Small, Export)...",
+    "Verifying outward supply ledger integrity & statutory totals..."
+  ];
+
+  const scanStepsList = scanMode === 'sales' ? salesScanStepsList : purchaseScanStepsList;
+
+  const handleModeChange = (newMode) => {
+    setScanMode(newMode);
+    if (extractedData) {
+      if (newMode === 'sales') {
+        const custName = extractedData.customerName || extractedData.vendorName || '';
+        const custGst = extractedData.customerGstin || extractedData.gstin || '';
+        const pos = extractedData.placeOfSupply || extractStateCode(custGst) || '27';
+        const supType = extractedData.supplyType || (custGst ? 'B2B' : 'B2C');
+        const breakdown = calculateGstBreakdown({
+          taxableAmount: extractedData.taxableAmount || 0,
+          gstRate: extractedData.gstRate !== undefined ? extractedData.gstRate : 18,
+          supplierStateCode: '27',
+          customerGstin: custGst,
+          placeOfSupply: pos,
+          supplyType: supType
+        });
+        setExtractedData(prev => ({
+          ...prev,
+          customerName: custName,
+          customerGstin: custGst,
+          placeOfSupply: pos,
+          supplyType: supType,
+          cgst: breakdown.cgst,
+          sgst: breakdown.sgst,
+          igst: breakdown.igst,
+          totalAmount: breakdown.totalAmount,
+          isArithmeticValid: true
+        }));
+      } else {
+        const vendName = extractedData.vendorName || extractedData.customerName || '';
+        const gstinVal = extractedData.gstin || extractedData.customerGstin || '';
+        const gst = Math.round(((extractedData.taxableAmount || 0) * (extractedData.gstRate || 18)) / 100 * 100) / 100;
+        setExtractedData(prev => ({
+          ...prev,
+          vendorName: vendName,
+          gstin: gstinVal,
+          cgst: Math.round((gst / 2) * 100) / 100,
+          sgst: Math.round((gst / 2) * 100) / 100,
+          igst: 0,
+          totalAmount: Math.round(((extractedData.taxableAmount || 0) + gst) * 100) / 100,
+          itcAmount: prev.itcEligibility?.includes('Eligible') ? gst : 0,
+          isArithmeticValid: true
+        }));
+      }
+    }
+  };
 
   // Stop camera tracks on unmount
   useEffect(() => {
@@ -584,26 +656,47 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
       itcAmount = 0;
     }
 
+    const custGst = reconciledFields.customerGstin || (scanMode === 'sales' ? '' : reconciledFields.gstin) || '';
+    const custName = reconciledFields.customerName || (scanMode === 'sales' ? (reconciledFields.vendorName || 'Walk-in Customer') : reconciledFields.vendorName) || '';
+    const pos = extractStateCode(custGst) || '27';
+    const supType = custGst ? 'B2B' : 'B2C';
+
+    let salesTaxBreakdown = null;
+    if (scanMode === 'sales') {
+      salesTaxBreakdown = calculateGstBreakdown({
+        taxableAmount: reconciledFields.taxableAmount || 0,
+        gstRate: reconciledFields.gstRate !== undefined ? reconciledFields.gstRate : 18,
+        supplierStateCode: '27',
+        customerGstin: custGst,
+        placeOfSupply: pos,
+        supplyType: supType
+      });
+    }
+
     const realExtractedData = {
       id: `INV-2026-${Math.floor(1000 + Math.random() * 9000)}`,
       vendorName: reconciledFields.vendorName,
+      customerName: custName,
       gstin: reconciledFields.gstin,
+      customerGstin: custGst,
+      supplyType: supType,
+      placeOfSupply: pos,
       gstinValidation: reconciledFields.gstinValidation,
       invoiceNumber: reconciledFields.invoiceNumber,
-      invoiceDate: reconciledFields.invoiceDate,
+      invoiceDate: normalizeDateString(reconciledFields.invoiceDate) || new Date().toISOString().split('T')[0],
       dueDate: new Date(Date.now() + 20 * 86400000).toISOString().split('T')[0],
       category: classifiedCategory,
-      hsnSac: reconciledFields.hsnSac,
+      hsnSac: reconciledFields.hsnSac || '998313',
       documentType: docType,
       extractionConfidence: reconciledFields.extractionConfidence !== undefined ? reconciledFields.extractionConfidence : 0.95,
       lineItems: reconciledFields.lineItems || [],
       taxableAmount: reconciledFields.taxableAmount,
       gstRate: reconciledFields.gstRate,
-      cgst: reconciledFields.cgst,
-      sgst: reconciledFields.sgst,
-      igst: reconciledFields.igst,
-      totalAmount: reconciledFields.totalAmount,
-      isArithmeticValid: reconciledFields.isArithmeticValid,
+      cgst: salesTaxBreakdown ? salesTaxBreakdown.cgst : reconciledFields.cgst,
+      sgst: salesTaxBreakdown ? salesTaxBreakdown.sgst : reconciledFields.sgst,
+      igst: salesTaxBreakdown ? salesTaxBreakdown.igst : reconciledFields.igst,
+      totalAmount: salesTaxBreakdown ? salesTaxBreakdown.totalAmount : reconciledFields.totalAmount,
+      isArithmeticValid: salesTaxBreakdown ? true : reconciledFields.isArithmeticValid,
       itcEligibility: itcEligibility,
       itcAmount: itcAmount,
       rcmApplicable: isRcm,
@@ -680,46 +773,145 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
     if (!extractedData) return;
     const updated = { ...extractedData, [fieldName]: value };
 
-    if (fieldName === 'taxableAmount') {
-      const val = parseFloat(value) || 0;
-      if (extractedData.documentType === 'bill_of_supply') {
-        updated.taxableAmount = val;
-        updated.totalAmount = val;
-        updated.cgst = 0;
-        updated.sgst = 0;
-        updated.igst = 0;
-        updated.isArithmeticValid = true;
-      } else {
-        const gst = Math.round((val * (extractedData.gstRate || 18)) / 100 * 100) / 100;
-        updated.taxableAmount = val;
+    if (scanMode === 'sales') {
+      const taxable = fieldName === 'taxableAmount' ? (parseFloat(value) || 0) : (updated.taxableAmount || 0);
+      const rate = fieldName === 'gstRate' ? (Number(value) || 0) : (updated.gstRate !== undefined ? updated.gstRate : 18);
+      const custGst = fieldName === 'customerGstin' || fieldName === 'gstin' ? String(value).toUpperCase() : (updated.customerGstin || updated.gstin || '');
+      const pos = fieldName === 'placeOfSupply' ? value : (updated.placeOfSupply || extractStateCode(custGst) || '27');
+      const supType = fieldName === 'supplyType' ? value : (updated.supplyType || (custGst ? 'B2B' : 'B2C'));
+
+      const breakdown = calculateGstBreakdown({
+        taxableAmount: taxable,
+        gstRate: rate,
+        supplierStateCode: '27',
+        customerGstin: custGst,
+        placeOfSupply: pos,
+        supplyType: supType
+      });
+
+      updated.taxableAmount = taxable;
+      updated.gstRate = rate;
+      if (fieldName === 'customerName' || fieldName === 'vendorName') {
+        updated.customerName = value;
+        updated.vendorName = value;
+      }
+      updated.customerGstin = custGst;
+      updated.gstin = custGst;
+      updated.placeOfSupply = pos;
+      updated.supplyType = supType;
+      updated.cgst = breakdown.cgst;
+      updated.sgst = breakdown.sgst;
+      updated.igst = breakdown.igst;
+      updated.totalAmount = breakdown.totalAmount;
+      updated.isArithmeticValid = true;
+    } else {
+      if (fieldName === 'taxableAmount') {
+        const val = parseFloat(value) || 0;
+        if (extractedData.documentType === 'bill_of_supply') {
+          updated.taxableAmount = val;
+          updated.totalAmount = val;
+          updated.cgst = 0;
+          updated.sgst = 0;
+          updated.igst = 0;
+          updated.isArithmeticValid = true;
+        } else {
+          const gst = Math.round((val * (extractedData.gstRate || 18)) / 100 * 100) / 100;
+          updated.taxableAmount = val;
+          updated.cgst = Math.round((gst / 2) * 100) / 100;
+          updated.sgst = Math.round((gst / 2) * 100) / 100;
+          updated.totalAmount = Math.round((val + gst) * 100) / 100;
+          updated.itcAmount = extractedData.itcEligibility?.includes('Eligible') ? gst : 0;
+          updated.isArithmeticValid = true;
+        }
+      } else if (fieldName === 'gstRate') {
+        const rate = Number(value) || 0;
+        const gst = Math.round(((extractedData.taxableAmount || 0) * rate) / 100 * 100) / 100;
+        updated.gstRate = rate;
         updated.cgst = Math.round((gst / 2) * 100) / 100;
         updated.sgst = Math.round((gst / 2) * 100) / 100;
-        updated.totalAmount = Math.round((val + gst) * 100) / 100;
+        updated.totalAmount = Math.round(((extractedData.taxableAmount || 0) + gst) * 100) / 100;
         updated.itcAmount = extractedData.itcEligibility?.includes('Eligible') ? gst : 0;
         updated.isArithmeticValid = true;
+      } else if (fieldName === 'totalAmount') {
+        updated.totalAmount = parseFloat(value) || 0;
+      } else if (fieldName === 'gstin') {
+        updated.gstin = String(value).toUpperCase();
       }
-    } else if (fieldName === 'gstRate') {
-      const rate = Number(value) || 0;
-      const gst = Math.round(((extractedData.taxableAmount || 0) * rate) / 100 * 100) / 100;
-      updated.gstRate = rate;
-      updated.cgst = Math.round((gst / 2) * 100) / 100;
-      updated.sgst = Math.round((gst / 2) * 100) / 100;
-      updated.totalAmount = Math.round(((extractedData.taxableAmount || 0) + gst) * 100) / 100;
-      updated.itcAmount = extractedData.itcEligibility?.includes('Eligible') ? gst : 0;
-      updated.isArithmeticValid = true;
-    } else if (fieldName === 'totalAmount') {
-      updated.totalAmount = parseFloat(value) || 0;
-    } else if (fieldName === 'gstin') {
-      updated.gstin = String(value).toUpperCase();
     }
 
     setExtractedData(updated);
   };
 
-
-
   const handleSaveInvoice = async () => {
     if (!extractedData) return;
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    if (scanMode === 'sales') {
+      try {
+        const custName = (extractedData.customerName || extractedData.vendorName || '').trim();
+        const invNum = (extractedData.invoiceNumber || '').trim();
+
+        if (!custName) {
+          setSaveError('Customer / Buyer Name is required to record a sales invoice.');
+          setIsSaving(false);
+          return;
+        }
+        if (!invNum) {
+          setSaveError('Invoice Number is required to record a sales invoice.');
+          setIsSaving(false);
+          return;
+        }
+
+        const taxableVal = Number(extractedData.taxableAmount) || 0;
+        if (taxableVal <= 0) {
+          setSaveError('Taxable Amount must be greater than 0.');
+          setIsSaving(false);
+          return;
+        }
+
+        const normalizedInvDate = normalizeDateString(extractedData.invoiceDate) || new Date().toISOString().split('T')[0];
+        const normalizedDueDate = extractedData.dueDate ? (normalizeDateString(extractedData.dueDate) || null) : null;
+
+        const salesPayload = {
+          customerName: custName,
+          customerGstin: (extractedData.customerGstin || extractedData.gstin || '').trim().toUpperCase() || null,
+          invoiceNumber: invNum,
+          invoiceDate: normalizedInvDate,
+          dueDate: normalizedDueDate,
+          hsnSac: (extractedData.hsnSac || '998313').trim(),
+          taxableAmount: taxableVal,
+          gstRate: Number(extractedData.gstRate) !== undefined ? Number(extractedData.gstRate) : 18,
+          cgst: Number(extractedData.cgst) || 0,
+          sgst: Number(extractedData.sgst) || 0,
+          igst: Number(extractedData.igst) || 0,
+          totalAmount: Number(extractedData.totalAmount) || 0,
+          supplyType: extractedData.supplyType || (extractedData.customerGstin ? 'B2B' : 'B2C'),
+          status: 'Issued',
+          placeOfSupply: extractedData.placeOfSupply || extractStateCode(extractedData.customerGstin) || '27',
+          notes: (extractedData.notes || 'Created via Invoice OCR Scan').trim()
+        };
+
+        const savedSalesInvoice = await salesInvoiceApi.create(salesPayload);
+        confetti({
+          particleCount: 80,
+          spread: 60,
+          origin: { y: 0.6 }
+        });
+        if (onSalesInvoiceScanned) {
+          onSalesInvoiceScanned(savedSalesInvoice);
+        } else if (onInvoiceScanned) {
+          onInvoiceScanned(savedSalesInvoice);
+        }
+        if (onClose) onClose();
+      } catch (err) {
+        setSaveError(err.message || 'Failed to save sales invoice to the backend.');
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
 
     const {
       files,
@@ -727,11 +919,12 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
       rawOcrTextSnippet,
       gstinValidation,
       isArithmeticValid,
+      customerName,
+      customerGstin,
+      placeOfSupply,
+      supplyType,
       ...invoicePayload
     } = extractedData;
-
-    setIsSaving(true);
-    setSaveError(null);
 
     try {
       const savedInvoice = await invoiceApi.create(invoicePayload);
@@ -740,7 +933,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
         spread: 60,
         origin: { y: 0.6 }
       });
-      onInvoiceScanned(savedInvoice);
+      if (onInvoiceScanned) onInvoiceScanned(savedInvoice);
       if (onClose) onClose();
     } catch (err) {
       setSaveError(err.message || 'Failed to save invoice to the backend.');
@@ -772,11 +965,52 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
         {onClose && (
           <button 
             onClick={onClose}
-            className="p-2 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-900 hover:bg-slate-200 transition"
+            className="p-2 rounded-xl bg-slate-100 text-slate-500 hover:text-slate-900 hover:bg-slate-200 transition cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         )}
+      </div>
+
+      {/* Scan Mode Switcher (Inward Purchase vs Outward Sales) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-2.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
+        <div className="flex items-center gap-1.5 p-1 bg-white border border-slate-200 rounded-xl shadow-2xs">
+          <button
+            type="button"
+            onClick={() => handleModeChange('purchase')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+              scanMode === 'purchase'
+                ? 'bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs'
+                : 'text-slate-500 hover:text-slate-900 border border-transparent'
+            }`}
+          >
+            <Receipt className="w-3.5 h-3.5" />
+            <span>Purchase Bill (Inward)</span>
+            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-rose-100/70 text-rose-800">ITC Claim</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleModeChange('sales')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+              scanMode === 'sales'
+                ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-2xs'
+                : 'text-slate-500 hover:text-slate-900 border border-transparent'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Sales Invoice (Outward)</span>
+            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-indigo-100/70 text-indigo-800">Output GST</span>
+          </button>
+        </div>
+
+        <div className="text-[11px] text-slate-500 font-medium px-2">
+          {scanMode === 'purchase' ? (
+            <span>📥 Feeds vendor ledger & calculates <strong className="text-slate-700">Section 17(5) Eligible ITC</strong></span>
+          ) : (
+            <span>📤 Feeds sales ledger & calculates <strong className="text-slate-700">GSTR-1 & GSTR-3B Output Tax</strong></span>
+          )}
+        </div>
       </div>
 
       {/* Camera Viewfinder Modal Overlay */}
@@ -1400,7 +1634,7 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                 />
                 
                 <div className="absolute top-4 left-4 border-2 border-rose-500 bg-white/90 px-2 py-0.5 rounded text-[9px] text-rose-700 font-bold font-mono shadow-sm">
-                  Vendor: {extractedData.vendorName || "Not Detected"}
+                  {scanMode === 'sales' ? 'Customer' : 'Vendor'}: {(scanMode === 'sales' ? extractedData.customerName : extractedData.vendorName) || "Not Detected"}
                 </div>
                 <div className="absolute bottom-4 right-4 border-2 border-slate-800 bg-white/90 px-2 py-0.5 rounded text-[9px] text-slate-900 font-bold font-mono shadow-sm">
                   Total: ₹{extractedData.totalAmount ? extractedData.totalAmount.toLocaleString('en-IN') : "0"}
@@ -1435,19 +1669,21 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                   </select>
                 </div>
 
-                {/* Vendor Name */}
+                {/* Party Name (Vendor vs Customer) */}
                 <div className="col-span-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <label className="text-slate-600 font-semibold">Vendor / Supplier Name</label>
+                      <label className="text-slate-600 font-semibold">
+                        {scanMode === 'sales' ? 'Customer / Buyer Name' : 'Vendor / Supplier Name'}
+                      </label>
                       <CandidateFieldBadge 
-                        fieldName="vendorName" 
-                        label="Vendor Name" 
+                        fieldName={scanMode === 'sales' ? 'customerName' : 'vendorName'} 
+                        label={scanMode === 'sales' ? 'Customer Name' : 'Vendor Name'} 
                         extractedData={extractedData} 
                         onSelectCandidate={handleSelectCandidate} 
-                        />
+                      />
                     </div>
-                    {!extractedData.vendorName && (
+                    {!(scanMode === 'sales' ? extractedData.customerName : extractedData.vendorName) && (
                       <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
                         <AlertCircle className="w-3 h-3" /> Please enter
                       </span>
@@ -1455,11 +1691,18 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                   </div>
                   <input 
                     type="text" 
-                    placeholder="Enter vendor name..."
-                    value={extractedData.vendorName || ''}
-                    onChange={(e) => setExtractedData({ ...extractedData, vendorName: e.target.value })}
+                    placeholder={scanMode === 'sales' ? 'Enter customer or business name...' : 'Enter vendor name...'}
+                    value={(scanMode === 'sales' ? extractedData.customerName : extractedData.vendorName) || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (scanMode === 'sales') {
+                        setExtractedData({ ...extractedData, customerName: val, vendorName: val });
+                      } else {
+                        setExtractedData({ ...extractedData, vendorName: val });
+                      }
+                    }}
                     className={`w-full mt-1 px-3 py-2 rounded-lg text-slate-900 font-bold outline-none border transition ${
-                      !extractedData.vendorName 
+                      !(scanMode === 'sales' ? extractedData.customerName : extractedData.vendorName) 
                         ? 'border-amber-400 bg-amber-50/30 focus:border-amber-500' 
                         : 'border-slate-300 bg-slate-50 focus:border-rose-500'
                     }`}
@@ -1470,63 +1713,204 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                 <div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
-                      <label className="text-slate-600 font-semibold">Vendor GSTIN</label>
+                      <label className="text-slate-600 font-semibold">
+                        {scanMode === 'sales' ? 'Customer GSTIN (B2B)' : 'Vendor GSTIN'}
+                      </label>
                       <CandidateFieldBadge 
-                        fieldName="gstin" 
-                        label="Vendor GSTIN" 
+                        fieldName={scanMode === 'sales' ? 'customerGstin' : 'gstin'} 
+                        label={scanMode === 'sales' ? 'Customer GSTIN' : 'Vendor GSTIN'} 
                         extractedData={extractedData} 
                         onSelectCandidate={handleSelectCandidate} 
                       />
                     </div>
-                    {!extractedData.gstin && (
-                      <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" /> Required
-                      </span>
+                    {scanMode === 'sales' ? (
+                      <span className="text-[10px] text-slate-400 font-medium">Optional for B2C</span>
+                    ) : (
+                      !extractedData.gstin && (
+                        <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" /> Required
+                        </span>
+                      )
                     )}
                   </div>
                   <input 
                     type="text" 
                     placeholder="21AAACI7904G1ZN"
-                    value={extractedData.gstin || ''}
-                    onChange={(e) => setExtractedData({ ...extractedData, gstin: e.target.value.toUpperCase() })}
+                    value={(scanMode === 'sales' ? (extractedData.customerGstin || extractedData.gstin) : extractedData.gstin) || ''}
+                    onChange={(e) => {
+                      const clean = e.target.value.toUpperCase().trim();
+                      if (scanMode === 'sales') {
+                        const detectedState = clean.length >= 2 && /^\d{2}/.test(clean) ? clean.substring(0, 2) : (extractedData.placeOfSupply || '27');
+                        const supType = clean ? 'B2B' : (extractedData.supplyType || 'B2C');
+                        const breakdown = calculateGstBreakdown({
+                          taxableAmount: extractedData.taxableAmount || 0,
+                          gstRate: extractedData.gstRate !== undefined ? extractedData.gstRate : 18,
+                          supplierStateCode: '27',
+                          customerGstin: clean,
+                          placeOfSupply: detectedState,
+                          supplyType: supType
+                        });
+                        setExtractedData({
+                          ...extractedData,
+                          customerGstin: clean,
+                          gstin: clean,
+                          placeOfSupply: detectedState,
+                          supplyType: supType,
+                          cgst: breakdown.cgst,
+                          sgst: breakdown.sgst,
+                          igst: breakdown.igst,
+                          totalAmount: breakdown.totalAmount,
+                          isArithmeticValid: true
+                        });
+                      } else {
+                        setExtractedData({ ...extractedData, gstin: clean });
+                      }
+                    }}
                     className={`w-full mt-1 px-3 py-2 rounded-lg font-mono font-bold outline-none uppercase border transition ${
-                      !extractedData.gstin 
+                      scanMode !== 'sales' && !extractedData.gstin 
                         ? 'border-amber-400 bg-amber-50/30 text-amber-900 focus:border-amber-500' 
                         : 'border-slate-300 bg-slate-50 text-rose-700 focus:border-rose-500'
                     }`}
                   />
                 </div>
 
-                {/* Invoice Number */}
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <label className="text-slate-600 font-semibold">Invoice Number</label>
-                      <CandidateFieldBadge 
-                        fieldName="invoiceNumber" 
-                        label="Invoice Number" 
-                        extractedData={extractedData} 
-                        onSelectCandidate={handleSelectCandidate} 
-                      />
+                {/* Invoice Number & Date Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-slate-600 font-semibold">Invoice Number</label>
+                        <CandidateFieldBadge 
+                          fieldName="invoiceNumber" 
+                          label="Invoice Number" 
+                          extractedData={extractedData} 
+                          onSelectCandidate={handleSelectCandidate} 
+                        />
+                      </div>
+                      {!extractedData.invoiceNumber && (
+                        <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" /> Required
+                        </span>
+                      )}
                     </div>
-                    {!extractedData.invoiceNumber && (
-                      <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" /> Required
-                      </span>
-                    )}
+                    <input 
+                      type="text" 
+                      placeholder="e.g. 1002251984503"
+                      value={extractedData.invoiceNumber || ''}
+                      onChange={(e) => setExtractedData({ ...extractedData, invoiceNumber: e.target.value })}
+                      className={`w-full mt-1 px-3 py-2 rounded-lg font-mono outline-none border transition ${
+                        !extractedData.invoiceNumber 
+                          ? 'border-amber-400 bg-amber-50/30 text-amber-900 focus:border-amber-500' 
+                          : 'border-slate-300 bg-slate-50 text-slate-900 focus:border-rose-500'
+                      }`}
+                    />
                   </div>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. 1002251984503"
-                    value={extractedData.invoiceNumber || ''}
-                    onChange={(e) => setExtractedData({ ...extractedData, invoiceNumber: e.target.value })}
-                    className={`w-full mt-1 px-3 py-2 rounded-lg font-mono outline-none border transition ${
-                      !extractedData.invoiceNumber 
-                        ? 'border-amber-400 bg-amber-50/30 text-amber-900 focus:border-amber-500' 
-                        : 'border-slate-300 bg-slate-50 text-slate-900 focus:border-rose-500'
-                    }`}
-                  />
+
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <label className="text-slate-600 font-semibold">Invoice Date</label>
+                        <CandidateFieldBadge 
+                          fieldName="invoiceDate" 
+                          label="Invoice Date" 
+                          extractedData={extractedData} 
+                          onSelectCandidate={handleSelectCandidate} 
+                        />
+                      </div>
+                      {!extractedData.invoiceDate && (
+                        <span className="text-[10px] text-amber-600 font-bold flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3" /> Required
+                        </span>
+                      )}
+                    </div>
+                    <input 
+                      type="date" 
+                      value={extractedData.invoiceDate ? (extractedData.invoiceDate.includes('T') ? extractedData.invoiceDate.split('T')[0] : extractedData.invoiceDate) : ''}
+                      onChange={(e) => setExtractedData({ ...extractedData, invoiceDate: e.target.value })}
+                      className="w-full mt-1 px-3 py-2 rounded-lg font-mono outline-none border border-slate-300 bg-slate-50 text-slate-900 focus:border-rose-500 transition"
+                    />
+                  </div>
                 </div>
+
+                {/* Sales Specific: Supply Type & Place of Supply */}
+                {scanMode === 'sales' && (
+                  <>
+                    <div>
+                      <label className="text-slate-600 font-semibold flex items-center justify-between">
+                        <span>Supply Type</span>
+                        <span className="text-[10px] text-indigo-600 font-bold">GSTR-1</span>
+                      </label>
+                      <select
+                        value={extractedData.supplyType || (extractedData.customerGstin ? 'B2B' : 'B2C')}
+                        onChange={(e) => {
+                          const newType = e.target.value;
+                          const breakdown = calculateGstBreakdown({
+                            taxableAmount: extractedData.taxableAmount || 0,
+                            gstRate: extractedData.gstRate !== undefined ? extractedData.gstRate : 18,
+                            supplierStateCode: '27',
+                            customerGstin: extractedData.customerGstin || extractedData.gstin || '',
+                            placeOfSupply: extractedData.placeOfSupply || '27',
+                            supplyType: newType
+                          });
+                          setExtractedData({
+                            ...extractedData,
+                            supplyType: newType,
+                            cgst: breakdown.cgst,
+                            sgst: breakdown.sgst,
+                            igst: breakdown.igst,
+                            totalAmount: breakdown.totalAmount,
+                            isArithmeticValid: true
+                          });
+                        }}
+                        className="w-full mt-1 px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 font-semibold focus:border-rose-500 outline-none"
+                      >
+                        <option value="B2B">B2B (Registered Business)</option>
+                        <option value="B2C">B2C (Consumer / Retail)</option>
+                        <option value="EXPORT">Export / Zero-Rated (LUT)</option>
+                        <option value="SEZ">Special Economic Zone (SEZ)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-slate-600 font-semibold flex items-center justify-between">
+                        <span>Place of Supply (State)</span>
+                        <span className="text-[10px] text-slate-500 font-mono">
+                          POS: {extractedData.placeOfSupply || '27'}
+                        </span>
+                      </label>
+                      <select
+                        value={extractedData.placeOfSupply || '27'}
+                        onChange={(e) => {
+                          const newPos = e.target.value;
+                          const breakdown = calculateGstBreakdown({
+                            taxableAmount: extractedData.taxableAmount || 0,
+                            gstRate: extractedData.gstRate !== undefined ? extractedData.gstRate : 18,
+                            supplierStateCode: '27',
+                            customerGstin: extractedData.customerGstin || extractedData.gstin || '',
+                            placeOfSupply: newPos,
+                            supplyType: extractedData.supplyType || (extractedData.customerGstin ? 'B2B' : 'B2C')
+                          });
+                          setExtractedData({
+                            ...extractedData,
+                            placeOfSupply: newPos,
+                            cgst: breakdown.cgst,
+                            sgst: breakdown.sgst,
+                            igst: breakdown.igst,
+                            totalAmount: breakdown.totalAmount,
+                            isArithmeticValid: true
+                          });
+                        }}
+                        className="w-full mt-1 px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 font-semibold focus:border-rose-500 outline-none"
+                      >
+                        {Object.entries(INDIAN_STATE_CODES).map(([code, name]) => (
+                          <option key={code} value={code}>
+                            {code} - {name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
 
                 {/* Category */}
                 <div>
@@ -1598,7 +1982,25 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                     value={extractedData.taxableAmount || ''}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value) || 0;
-                      if (extractedData.documentType === 'bill_of_supply') {
+                      if (scanMode === 'sales') {
+                        const breakdown = calculateGstBreakdown({
+                          taxableAmount: val,
+                          gstRate: extractedData.gstRate !== undefined ? extractedData.gstRate : 18,
+                          supplierStateCode: '27',
+                          customerGstin: extractedData.customerGstin || extractedData.gstin || '',
+                          placeOfSupply: extractedData.placeOfSupply || '27',
+                          supplyType: extractedData.supplyType || (extractedData.customerGstin ? 'B2B' : 'B2C')
+                        });
+                        setExtractedData({
+                          ...extractedData,
+                          taxableAmount: val,
+                          cgst: breakdown.cgst,
+                          sgst: breakdown.sgst,
+                          igst: breakdown.igst,
+                          totalAmount: breakdown.totalAmount,
+                          isArithmeticValid: true
+                        });
+                      } else if (extractedData.documentType === 'bill_of_supply') {
                         setExtractedData({
                           ...extractedData,
                           taxableAmount: val,
@@ -1647,16 +2049,36 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                     disabled={extractedData.documentType === 'bill_of_supply'}
                     onChange={(e) => {
                       const rate = Number(e.target.value);
-                      const gst = Math.round((extractedData.taxableAmount * rate) / 100 * 100) / 100;
-                      setExtractedData({ 
-                        ...extractedData, 
-                        gstRate: rate,
-                        cgst: Math.round((gst / 2) * 100) / 100,
-                        sgst: Math.round((gst / 2) * 100) / 100,
-                        totalAmount: Math.round((extractedData.taxableAmount + gst) * 100) / 100,
-                        itcAmount: extractedData.itcEligibility.includes('Eligible') ? gst : 0,
-                        isArithmeticValid: true
-                      });
+                      if (scanMode === 'sales') {
+                        const breakdown = calculateGstBreakdown({
+                          taxableAmount: extractedData.taxableAmount || 0,
+                          gstRate: rate,
+                          supplierStateCode: '27',
+                          customerGstin: extractedData.customerGstin || extractedData.gstin || '',
+                          placeOfSupply: extractedData.placeOfSupply || '27',
+                          supplyType: extractedData.supplyType || (extractedData.customerGstin ? 'B2B' : 'B2C')
+                        });
+                        setExtractedData({
+                          ...extractedData,
+                          gstRate: rate,
+                          cgst: breakdown.cgst,
+                          sgst: breakdown.sgst,
+                          igst: breakdown.igst,
+                          totalAmount: breakdown.totalAmount,
+                          isArithmeticValid: true
+                        });
+                      } else {
+                        const gst = Math.round((extractedData.taxableAmount * rate) / 100 * 100) / 100;
+                        setExtractedData({ 
+                          ...extractedData, 
+                          gstRate: rate,
+                          cgst: Math.round((gst / 2) * 100) / 100,
+                          sgst: Math.round((gst / 2) * 100) / 100,
+                          totalAmount: Math.round((extractedData.taxableAmount + gst) * 100) / 100,
+                          itcAmount: extractedData.itcEligibility.includes('Eligible') ? gst : 0,
+                          isArithmeticValid: true
+                        });
+                      }
                     }}
                     className="w-full mt-1 px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 text-slate-900 focus:border-rose-500 outline-none disabled:opacity-60"
                   >
@@ -1706,37 +2128,66 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
                 </div>
               </div>
 
-              {/* ITC Selection */}
-              <div className="pt-2">
-                <label className="text-slate-600 text-xs font-semibold">Input Tax Credit (ITC) Classification</label>
-                <div className="grid grid-cols-2 gap-2 mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setExtractedData({ ...extractedData, itcEligibility: 'Eligible', itcAmount: extractedData.cgst + extractedData.sgst + extractedData.igst })}
-                    className={`p-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition ${
-                      extractedData.itcEligibility === 'Eligible'
-                        ? 'bg-emerald-50 border-emerald-400 text-emerald-700 shadow-2xs'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    Eligible ITC
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setExtractedData({ ...extractedData, itcEligibility: 'Ineligible (Sec 17(5))', itcAmount: 0 })}
-                    className={`p-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition ${
-                      extractedData.itcEligibility.includes('Ineligible')
-                        ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-2xs'
-                        : 'bg-slate-50 border-slate-200 text-slate-600'
-                    }`}
-                  >
-                    <AlertCircle className="w-3.5 h-3.5" />
-                    Blocked Credit (Sec 17(5))
-                  </button>
+              {/* ITC Selection (Purchase) vs Output GST Liability Summary (Sales) */}
+              {scanMode === 'sales' ? (
+                <div className="pt-2">
+                  <div className="flex items-center justify-between text-xs font-semibold mb-1">
+                    <span className="text-slate-600">Output GST Liability Summary</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+                      {extractedData.placeOfSupply && extractedData.placeOfSupply !== '27' ? 'Inter-State Supply (IGST)' : 'Intra-State Supply (CGST+SGST)'}
+                    </span>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-xs">
+                    <div className="flex items-center justify-between font-mono">
+                      <span className="text-slate-500">Output CGST (Central Tax):</span>
+                      <span className="font-bold text-slate-800">₹{(extractedData.cgst || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="flex items-center justify-between font-mono">
+                      <span className="text-slate-500">Output SGST (State Tax):</span>
+                      <span className="font-bold text-slate-800">₹{(extractedData.sgst || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="flex items-center justify-between font-mono">
+                      <span className="text-slate-500">Output IGST (Integrated Tax):</span>
+                      <span className="font-bold text-indigo-700">₹{(extractedData.igst || 0).toLocaleString('en-IN')}</span>
+                    </div>
+                    <div className="pt-1.5 border-t border-slate-200 flex items-center justify-between font-mono font-bold">
+                      <span className="text-slate-700">Total Output Tax Liability:</span>
+                      <span className="text-rose-600">₹{((extractedData.cgst || 0) + (extractedData.sgst || 0) + (extractedData.igst || 0)).toLocaleString('en-IN')}</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="pt-2">
+                  <label className="text-slate-600 text-xs font-semibold">Input Tax Credit (ITC) Classification</label>
+                  <div className="grid grid-cols-2 gap-2 mt-1">
+                    <button
+                      type="button"
+                      onClick={() => setExtractedData({ ...extractedData, itcEligibility: 'Eligible', itcAmount: extractedData.cgst + extractedData.sgst + extractedData.igst })}
+                      className={`p-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+                        extractedData.itcEligibility === 'Eligible'
+                          ? 'bg-emerald-50 border-emerald-400 text-emerald-700 shadow-2xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      Eligible ITC
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setExtractedData({ ...extractedData, itcEligibility: 'Ineligible (Sec 17(5))', itcAmount: 0 })}
+                      className={`p-2 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+                        extractedData.itcEligibility.includes('Ineligible')
+                          ? 'bg-amber-50 border-amber-400 text-amber-700 shadow-2xs'
+                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                      }`}
+                    >
+                      <AlertCircle className="w-3.5 h-3.5" />
+                      Blocked Credit (Sec 17(5))
+                    </button>
+                  </div>
+                </div>
+              )}
 
             </div>
 
@@ -1850,10 +2301,14 @@ export default function OcrUploadScanner({ onInvoiceScanned, onClose }) {
             <button
               onClick={handleSaveInvoice}
               disabled={isSaving}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white font-bold text-xs shadow-md shadow-rose-600/20 transition hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100"
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-xs shadow-md transition hover:scale-[1.02] disabled:opacity-60 disabled:hover:scale-100 cursor-pointer ${
+                scanMode === 'sales'
+                  ? 'bg-gradient-to-r from-indigo-600 to-rose-600 hover:from-indigo-700 hover:to-rose-700 text-white shadow-indigo-600/20'
+                  : 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white shadow-rose-600/20'
+              }`}
             >
               <CheckCircle2 className="w-4 h-4" />
-              {isSaving ? 'Saving…' : 'Save & Post Verified Entry'}
+              {isSaving ? 'Saving…' : (scanMode === 'sales' ? 'Save & Post to Sales Ledger' : 'Save & Post Verified Entry')}
             </button>
           </div>
 

@@ -1,7 +1,7 @@
 {
   "accuracy": 1.0,
   "macro_f1": 1.0,
-  "test_report": "                               precision    recall  f1-score   support\n\n                Raw Materials     1.0000    1.0000    1.0000        10\nCapital Goods & Office Assets     1.0000    1.0000    1.0000        10\n         Cloud Infrastructure     1.0000    1.0000    1.0000        10\n     Software & Subscriptions     1.0000    1.0000    1.0000        10\n          Freight & Transport     1.0000    1.0000    1.0000        10\n         Food & Entertainment     1.0000    1.0000    1.0000        10\nProfessional & Legal Services     1.0000    1.0000    1.0000        10\n                    Utilities     1.0000    1.0000    1.0000        10\n            Rent & Facilities     1.0000    1.0000    1.0000        10\n      Marketing & Advertising     1.0000    1.0000    1.0000        10\n Office Supplies & Stationery     1.0000    1.0000    1.0000        10\n                    Insurance     1.0000    1.0000    1.0000        10\n          Travel & Conveyance     1.0000    1.0000    1.0000        10\n        Repairs & Maintenance     1.0000    1.0000    1.0000        10\n                        Other     1.0000    1.0000    1.0000        10\n\n                     accuracy                         1.0000       150\n                    macro avg     1.0000    1.0000    1.0000       150\n                 weighted avg     1.0000    1.0000    1.0000       150\n",
+  "test_report": "                               precision    recall  f1-score   support\n\n                Raw Materials     1.0000    1.0000    1.0000        24\nCapital Goods & Office Assets     1.0000    1.0000    1.0000        24\n         Cloud Infrastructure     1.0000    1.0000    1.0000        24\n     Software & Subscriptions     1.0000    1.0000    1.0000        24\n          Freight & Transport     1.0000    1.0000    1.0000        24\n         Food & Entertainment     1.0000    1.0000    1.0000        24\nProfessional & Legal Services     1.0000    1.0000    1.0000        24\n                    Utilities     1.0000    1.0000    1.0000        24\n            Rent & Facilities     1.0000    1.0000    1.0000        24\n      Marketing & Advertising     1.0000    1.0000    1.0000        24\n Office Supplies & Stationery     1.0000    1.0000    1.0000        24\n                    Insurance     1.0000    1.0000    1.0000        24\n          Travel & Conveyance     1.0000    1.0000    1.0000        24\n        Repairs & Maintenance     1.0000    1.0000    1.0000        24\n                        Other     1.0000    1.0000    1.0000        24\n\n                     accuracy                         1.0000       360\n                    macro avg     1.0000    1.0000    1.0000       360\n                 weighted avg     1.0000    1.0000    1.0000       360\n",
   "classes": [
     "Capital Goods & Office Assets",
     "Cloud Infrastructure",
@@ -19,7 +19,7 @@
     "Travel & Conveyance",
     "Utilities"
   ],
-  "num_train": 600,
-  "num_test": 150,
-  "trained_at": "2026-08-10T14:07:46.187204"
+  "num_train": 1440,
+  "num_test": 360,
+  "trained_at": "2026-08-14T11:00:21.308522"
 }

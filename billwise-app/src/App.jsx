@@ -16,6 +16,9 @@ import AccountantPendingApprovalScreen from './components/AccountantPendingAppro
 import ProfilePage from './components/ProfilePage';
 import SettingsPage from './components/SettingsPage';
 import AccountantManagement from './components/AccountantManagement';
+import SalesInvoiceManagement from './components/SalesInvoiceManagement';
+import Gstr3bDashboard from './components/Gstr3bDashboard';
+import Gstr1ReportView from './components/Gstr1ReportView';
 import { useAuth } from './context/AuthContext';
 import { invoiceApi, merchantApi } from './api';
 
@@ -30,6 +33,7 @@ export default function App() {
     fullName,
     profilePhotoUrl,
     merchantTradeName,
+    merchant,
     login,
     logout,
   } = useAuth();
@@ -53,9 +57,11 @@ export default function App() {
   const [loadError, setLoadError] = useState(null);
 
   const [isScanModalOpen, setIsScanModalOpen] = useState(false);
+  const [scanModalMode, setScanModalMode] = useState('purchase');
   const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [pendingCount, setPendingCount] = useState(0);
+  const [salesRefreshTrigger, setSalesRefreshTrigger] = useState(0);
 
 
   // Synchronize SuperAdmin landing tab
@@ -111,10 +117,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  const handleOpenScanModal = (mode = 'purchase') => {
+    setScanModalMode(mode);
+    setIsScanModalOpen(true);
+  };
+
   const handleInvoiceScanned = (scannedInvoice) => {
     // If invoice with this id or number already existed, refresh list to show updated single bill
     fetchInvoices();
     setIsScanModalOpen(false);
+  };
+
+  const handleSalesInvoiceScanned = (scannedSalesInvoice) => {
+    setIsScanModalOpen(false);
+    setSalesRefreshTrigger(prev => prev + 1);
+    if (activeTab !== 'sales') {
+      setActiveTab('sales');
+    }
   };
 
   if (!isAuthenticated) {
@@ -151,7 +170,7 @@ export default function App() {
       <Navbar 
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onOpenScanModal={() => setIsScanModalOpen(true)}
+        onOpenScanModal={() => handleOpenScanModal(activeTab === 'sales' ? 'sales' : 'purchase')}
         onOpenCopilot={() => setIsCopilotOpen(true)}
         totalInvoicesCount={invoices.length}
         username={username}
@@ -218,6 +237,33 @@ export default function App() {
           />
         )}
 
+        {/* Sales Invoices Ledger Tab (Tenant Only) */}
+        {!isSuperAdmin && activeTab === 'sales' && (
+          <SalesInvoiceManagement 
+            canManage={canManageInvoices}
+            merchantGstin={merchant?.gstin || '27AAACA1234F1Z5'}
+            salesRefreshTrigger={salesRefreshTrigger}
+            onNavigateToGstr3b={() => setActiveTab('gstr3b')}
+            onNavigateToGstr1={() => setActiveTab('gstr1')}
+          />
+        )}
+
+        {/* GSTR-3B Net Liability Tab (Tenant Only) */}
+        {!isSuperAdmin && activeTab === 'gstr3b' && (
+          <Gstr3bDashboard 
+            onNavigateToSales={() => setActiveTab('sales')}
+            onNavigateToGstr1={() => setActiveTab('gstr1')}
+          />
+        )}
+
+        {/* GSTR-1 Outward Supplies Report Tab (Tenant Only) */}
+        {!isSuperAdmin && activeTab === 'gstr1' && (
+          <Gstr1ReportView 
+            onNavigateToSales={() => setActiveTab('sales')}
+            onNavigateToGstr3b={() => setActiveTab('gstr3b')}
+          />
+        )}
+
         {/* GST & ITC Tab (Tenant Only) */}
         {!isSuperAdmin && activeTab === 'gst' && (
           <GstCategorizer 
@@ -247,7 +293,9 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
             <OcrUploadScanner 
+              initialScanMode={scanModalMode}
               onInvoiceScanned={handleInvoiceScanned}
+              onSalesInvoiceScanned={handleSalesInvoiceScanned}
               onClose={() => setIsScanModalOpen(false)}
             />
           </div>

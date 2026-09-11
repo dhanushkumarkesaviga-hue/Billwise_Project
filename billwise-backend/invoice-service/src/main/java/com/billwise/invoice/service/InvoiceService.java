@@ -214,13 +214,17 @@ public class InvoiceService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         BigDecimal eligibleItc = invoices.stream()
-                .filter(inv -> inv.getItcEligibility() != null && inv.getItcEligibility().contains("Eligible"))
-                .map(Invoice::getItcAmount)
-                .filter(Objects::nonNull)
+                .filter(GstrSummaryService::isItcEligible)
+                .map(inv -> {
+                    BigDecimal amt = nz(inv.getItcAmount());
+                    return amt.compareTo(BigDecimal.ZERO) == 0
+                            ? nz(inv.getCgst()).add(nz(inv.getSgst())).add(nz(inv.getIgst()))
+                            : amt;
+                })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         BigDecimal blockedItc = invoices.stream()
-                .filter(inv -> inv.getItcEligibility() != null && inv.getItcEligibility().contains("Ineligible"))
+                .filter(GstrSummaryService::isItcIneligible)
                 .map(inv -> nz(inv.getCgst()).add(nz(inv.getSgst())).add(nz(inv.getIgst())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 

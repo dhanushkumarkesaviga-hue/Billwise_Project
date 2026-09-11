@@ -23,6 +23,7 @@ import java.util.List;
 public class DataSeeder implements CommandLineRunner {
 
     private final InvoiceRepository invoiceRepository;
+    private final com.billwise.backend.repository.SalesInvoiceRepository salesInvoiceRepository;
     private final GstDeadlineRepository gstDeadlineRepository;
     private final UserRepository userRepository;
     private final MerchantRepository merchantRepository;
@@ -33,6 +34,7 @@ public class DataSeeder implements CommandLineRunner {
     public void run(String... args) {
         Merchant shriRam = seedMerchantsAndUsers();
         seedInvoices(shriRam != null ? shriRam.getId() : null);
+        seedSalesInvoices(shriRam != null ? shriRam.getId() : null);
         seedDeadlines();
     }
 
@@ -403,5 +405,72 @@ public class DataSeeder implements CommandLineRunner {
         d.setMaxPenalty(maxPenalty);
         d.setImpact(impact);
         return d;
+    }
+
+    private void seedSalesInvoices(String merchantId) {
+        if (salesInvoiceRepository.count() > 0) return;
+
+        List<com.billwise.backend.entity.SalesInvoice> demoSales = List.of(
+                salesInv("SINV-2026-101", merchantId, "Tata Consultancy Services Ltd", "27AAACT2727Q1ZW",
+                        "INV/2026/089", LocalDate.of(2026, 2, 10), LocalDate.of(2026, 3, 10), "998313",
+                        "150000.00", 18.0, "13500.00", "13500.00", "0.00", "177000.00",
+                        "B2B", "Issued", "27", "Enterprise cloud consulting retainer", "admin"),
+
+                salesInv("SINV-2026-102", merchantId, "Infosys Technologies Bangalore", "29AAACI4747B1ZB",
+                        "INV/2026/090", LocalDate.of(2026, 2, 15), LocalDate.of(2026, 3, 15), "998315",
+                        "280000.00", 18.0, "0.00", "0.00", "50400.00", "330400.00",
+                        "B2B", "Issued", "29", "Interstate software subscription license", "admin"),
+
+                salesInv("SINV-2026-103", merchantId, "Aarav Sharma (Delhi Client)", null,
+                        "INV/2026/091", LocalDate.of(2026, 2, 20), LocalDate.of(2026, 3, 20), "8471",
+                        "260000.00", 18.0, "0.00", "0.00", "46800.00", "306800.00",
+                        "B2C", "Issued", "07", "Interstate high-value server asset delivery (B2C Large > ₹2.5L)", "admin"),
+
+                salesInv("SINV-2026-104", merchantId, "Pooja Deshmukh (Pune Retail)", null,
+                        "INV/2026/092", LocalDate.of(2026, 2, 22), LocalDate.of(2026, 3, 22), "4820",
+                        "14500.00", 12.0, "870.00", "870.00", "0.00", "16240.00",
+                        "B2C", "Issued", "27", "Intrastate stationery supplies retail order", "admin"),
+
+                salesInv("SINV-2026-105", merchantId, "Kavita Reddy (Hyderabad Consumer)", null,
+                        "INV/2026/093", LocalDate.of(2026, 2, 25), LocalDate.of(2026, 3, 25), "998315",
+                        "35000.00", 18.0, "0.00", "0.00", "6300.00", "41300.00",
+                        "B2C", "Issued", "36", "Interstate online software access (B2C Small <= ₹2.5L)", "admin"),
+
+                salesInv("SINV-2026-106", merchantId, "Acme Global Corp (USA)", null,
+                        "INV/2026/094", LocalDate.of(2026, 2, 28), LocalDate.of(2026, 3, 28), "998313",
+                        "400000.00", 0.0, "0.00", "0.00", "0.00", "400000.00",
+                        "EXPORT", "Issued", "96", "Export of IT enabled services under LUT (Zero-rated)", "admin")
+        );
+
+        salesInvoiceRepository.saveAll(demoSales);
+        log.info("Seeded {} demo sales invoices (B2B, B2C Large, B2C Small, Exports)", demoSales.size());
+    }
+
+    private com.billwise.backend.entity.SalesInvoice salesInv(String id, String merchantId, String customerName, String customerGstin,
+                                  String invoiceNumber, LocalDate invoiceDate, LocalDate dueDate, String hsnSac,
+                                  String taxableAmount, Double gstRate, String cgst, String sgst, String igst,
+                                  String totalAmount, String supplyType, String status, String placeOfSupply,
+                                  String notes, String createdBy) {
+        com.billwise.backend.entity.SalesInvoice s = new com.billwise.backend.entity.SalesInvoice();
+        s.setId(id);
+        s.setMerchantId(merchantId);
+        s.setCustomerName(customerName);
+        s.setCustomerGstin(customerGstin);
+        s.setInvoiceNumber(invoiceNumber);
+        s.setInvoiceDate(invoiceDate);
+        s.setDueDate(dueDate);
+        s.setHsnSac(hsnSac);
+        s.setTaxableAmount(new BigDecimal(taxableAmount));
+        s.setGstRate(gstRate);
+        s.setCgst(new BigDecimal(cgst));
+        s.setSgst(new BigDecimal(sgst));
+        s.setIgst(new BigDecimal(igst));
+        s.setTotalAmount(new BigDecimal(totalAmount));
+        s.setSupplyType(supplyType);
+        s.setStatus(status);
+        s.setPlaceOfSupply(placeOfSupply);
+        s.setNotes(notes);
+        s.setCreatedBy(createdBy);
+        return s;
     }
 }

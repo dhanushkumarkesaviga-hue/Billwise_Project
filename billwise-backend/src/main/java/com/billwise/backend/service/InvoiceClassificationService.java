@@ -1,134 +1,154 @@
 package com.billwise.backend.service;
 
 import com.billwise.backend.dto.ClassifyResponse;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
+import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class InvoiceClassificationService {
 
     private final RestTemplate restTemplate;
+    private final String mlClassifyUrl;
 
-    @Value("${gemini.api.key:}")
-    private String geminiApiKey;
+    public InvoiceClassificationService(
+            RestTemplateBuilder restTemplateBuilder,
+            @Value("${ml.classify.url:http://localhost:8000/classify}") String mlClassifyUrl,
+            @Value("${ml.classify.timeout-ms:3000}") long timeoutMs) {
+        this.restTemplate = restTemplateBuilder
+                .setConnectTimeout(Duration.ofMillis(timeoutMs))
+                .setReadTimeout(Duration.ofMillis(timeoutMs))
+                .build();
+        this.mlClassifyUrl = (mlClassifyUrl != null && !mlClassifyUrl.isBlank())
+                ? mlClassifyUrl.trim()
+                : "http://localhost:8000/classify";
+    }
 
-    @Value("${gemini.api.model:gemini-flash-latest}")
-    private String geminiModel;
-
-    private static final String GEMINI_URL_TEMPLATE =
-            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s";
-
+    /**
+     * Classifies the given OCR invoice text and vendor hint into one of the 15 standard categories
+     * using the custom trained BillWise ML microservice on port 8000, with instant rule-based fallback.
+     */
     public ClassifyResponse classify(String ocrText, String vendorNameHint) {
-        if (geminiApiKey == null || geminiApiKey.isBlank()) {
-            throw new IllegalStateException(
-                    "GEMINI_API_KEY is not configured. Set it as an environment variable before starting the app.");
+        if (ocrText == null || ocrText.isBlank()) {
+            return new ClassifyResponse(InvoiceCategories.DEFAULT_CATEGORY, 0.50, "No OCR text provided.", true);
         }
 
-        String prompt = buildPrompt(ocrText, vendorNameHint);
-        Map<String, Object> requestBody = buildGeminiRequest(prompt);
-
-        String url = String.format(GEMINI_URL_TEMPLATE, geminiModel, geminiApiKey);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-
-        String rawAnswer;
         try {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> response = restTemplate.postForObject(url, entity, Map.class);
-            rawAnswer = extractReplyText(response);
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("text", ocrText);
+            if (vendorNameHint != null && !vendorNameHint.isBlank()) {
+                requestBody.put("vendorNameHint", vendorNameHint.trim());
+            }
+
+            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+            Map<?, ?> response = restTemplate.postForObject(mlClassifyUrl, entity, Map.class);
+
+            if (response != null && response.containsKey("category")) {
+                String category = String.valueOf(response.get("category"));
+                Double confidence = 0.85;
+                if (response.get("confidence") instanceof Number num) {
+                    confidence = num.doubleValue();
+                }
+                String reason = response.containsKey("reason")
+                        ? String.valueOf(response.get("reason"))
+                        : "Classified by BillWise ML Model.";
+
+                // Validate against standard 15-category taxonomy
+                if (InvoiceCategories.isValid(category)) {
+                    log.info("ML Category Classifier predicted [{}] with confidence [{}]", category, confidence);
+                    return new ClassifyResponse(category, confidence, reason, false);
+                } else {
+                    log.warn("ML Classifier returned unrecognized category [{}]. Falling back to '{}'", category, InvoiceCategories.DEFAULT_CATEGORY);
+                    return new ClassifyResponse(InvoiceCategories.DEFAULT_CATEGORY, 0.50, "Unrecognized category returned by ML model; defaulted to Other.", true);
+                }
+            }
         } catch (Exception ex) {
-            log.error("Gemini classification call failed", ex);
-            return new ClassifyResponse(InvoiceCategories.FALLBACK_CATEGORY, true);
+            log.warn("ML inference service request to [{}] failed: {}. Falling back to rule-based heuristic classifier.", mlClassifyUrl, ex.getMessage());
         }
 
-        return matchToAllowedCategory(rawAnswer);
+        // Secondary fallback to heuristic rule-based classification if ML service is unreachable
+        return heuristicClassify(ocrText, vendorNameHint, "ML service unreachable; used rule-based classifier fallback.");
     }
 
-    // Keeps the request small and cheap: a short, constrained prompt with a
-    // low output token cap, since we only need one category name back.
-    private String buildPrompt(String ocrText, String vendorNameHint) {
-        String truncatedText = ocrText.length() > 1500 ? ocrText.substring(0, 1500) : ocrText;
+    private ClassifyResponse heuristicClassify(String text, String vendor, String reasonPrefix) {
+        String haystack = ((vendor == null ? "" : vendor) + " " + text).toLowerCase();
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("Classify this Indian GST invoice into exactly ONE category from this exact list ");
-        sb.append("(reply with only the category text, nothing else, no punctuation, no explanation):\n");
-        sb.append(String.join(" | ", InvoiceCategories.ALLOWED_CATEGORIES)).append("\n\n");
-
-        if (vendorNameHint != null && !vendorNameHint.isBlank()) {
-            sb.append("Vendor name: ").append(vendorNameHint).append("\n");
+        if (haystack.contains("smartphone") || haystack.contains("mobile") || haystack.contains("phone")
+                || haystack.contains("handset") || haystack.contains("cellular") || haystack.contains("8517")
+                || haystack.contains("laptop") || haystack.contains("computer") || haystack.contains("server hardware")
+                || haystack.contains("chair") || haystack.contains("furniture") || haystack.contains("desk")
+                || haystack.contains("asset") || haystack.contains("machinery")) {
+            return new ClassifyResponse("Capital Goods & Office Assets", 0.92, reasonPrefix + " (Matched electronics/telecom/assets)", true);
+        }
+        if (haystack.contains("cloud") || haystack.contains("aws") || haystack.contains("azure")
+                || haystack.contains("hosting") || haystack.contains("server") || haystack.contains("digitalocean")) {
+            return new ClassifyResponse("Cloud Infrastructure", 0.90, reasonPrefix + " (Matched cloud keywords)", true);
+        }
+        if (haystack.contains("software") || haystack.contains("subscription") || haystack.contains("saas")
+                || haystack.contains("license") || haystack.contains("github") || haystack.contains("atlassian") || haystack.contains("jira")) {
+            return new ClassifyResponse("Software & Subscriptions", 0.88, reasonPrefix + " (Matched software keywords)", true);
+        }
+        if (haystack.contains("freight") || haystack.contains("transport") || haystack.contains("logistics")
+                || haystack.contains("courier") || haystack.contains("cargo") || haystack.contains("shipping charges")
+                || haystack.contains("goods carriage") || haystack.contains("lorry")) {
+            return new ClassifyResponse("Freight & Transport", 0.90, reasonPrefix + " (Matched freight/transport)", true);
+        }
+        if (haystack.contains("hotel") || haystack.contains("restaurant") || haystack.contains("catering")
+                || haystack.contains("food") || haystack.contains("dining") || haystack.contains("cafe") || haystack.contains("buffet")) {
+            return new ClassifyResponse("Food & Entertainment", 0.92, reasonPrefix + " (Matched food/catering)", true);
+        }
+        if (haystack.contains("steel") || haystack.contains("raw") || haystack.contains("material")
+                || haystack.contains("hardware") || haystack.contains("fastener") || haystack.contains("chemical") || haystack.contains("polymer")
+                || haystack.contains("compound")) {
+            return new ClassifyResponse("Raw Materials", 0.85, reasonPrefix + " (Matched raw materials)", true);
+        }
+        if (haystack.contains("legal") || haystack.contains("consulting") || haystack.contains("advocate")
+                || haystack.contains("audit") || haystack.contains("chartered") || haystack.contains("professional")) {
+            return new ClassifyResponse("Professional & Legal Services", 0.87, reasonPrefix + " (Matched professional services)", true);
+        }
+        if (haystack.contains("electricity") || haystack.contains("water") || haystack.contains("broadband")
+                || haystack.contains("internet") || haystack.contains("gas") || haystack.contains("utility")) {
+            return new ClassifyResponse("Utilities", 0.86, reasonPrefix + " (Matched utilities)", true);
+        }
+        if (haystack.contains("rent") || haystack.contains("lease") || haystack.contains("coworking")
+                || haystack.contains("premises") || haystack.contains("facilities")) {
+            return new ClassifyResponse("Rent & Facilities", 0.88, reasonPrefix + " (Matched rent/facilities)", true);
+        }
+        if (haystack.contains("marketing") || haystack.contains("advertising") || haystack.contains("ads")
+                || haystack.contains("campaign") || haystack.contains("billboard") || haystack.contains("seo")) {
+            return new ClassifyResponse("Marketing & Advertising", 0.87, reasonPrefix + " (Matched marketing/advertising)", true);
+        }
+        if (haystack.contains("stationery") || haystack.contains("paper") || haystack.contains("pens")
+                || haystack.contains("print") || haystack.contains("supplies")) {
+            return new ClassifyResponse("Office Supplies & Stationery", 0.86, reasonPrefix + " (Matched office supplies)", true);
+        }
+        if (haystack.contains("insurance") || haystack.contains("premium") || haystack.contains("policy")
+                || haystack.contains("indemnity") || haystack.contains("mediclaim")) {
+            return new ClassifyResponse("Insurance", 0.89, reasonPrefix + " (Matched insurance)", true);
+        }
+        if (haystack.contains("travel") || haystack.contains("flight") || haystack.contains("air ticket")
+                || haystack.contains("cab") || haystack.contains("taxi") || haystack.contains("conveyance")) {
+            return new ClassifyResponse("Travel & Conveyance", 0.88, reasonPrefix + " (Matched travel)", true);
+        }
+        if (haystack.contains("repair") || haystack.contains("maintenance") || haystack.contains("amc")
+                || haystack.contains("servicing")) {
+            return new ClassifyResponse("Repairs & Maintenance", 0.87, reasonPrefix + " (Matched repairs)", true);
         }
 
-        sb.append("OCR-extracted invoice text:\n").append(truncatedText);
-        return sb.toString();
-    }
-
-    private Map<String, Object> buildGeminiRequest(String prompt) {
-        List<Map<String, Object>> contents = List.of(
-                Map.of("role", "user", "parts", List.of(Map.of("text", prompt)))
-        );
-
-        // Low token cap keeps each classification call cheap and fast --
-        // we only expect a short category label back, not prose.
-        Map<String, Object> generationConfig = Map.of(
-                "temperature", 0.1,
-                "maxOutputTokens", 500
-        );
-
-        return Map.of(
-                "contents", contents,
-                "generationConfig", generationConfig
-        );
-    }
-
-    @SuppressWarnings("unchecked")
-    private String extractReplyText(Map<String, Object> response) {
-        try {
-            List<Map<String, Object>> candidates = (List<Map<String, Object>>) response.get("candidates");
-            Map<String, Object> content = (Map<String, Object>) candidates.get(0).get("content");
-            List<Map<String, Object>> parts = (List<Map<String, Object>>) content.get("parts");
-            return (String) parts.get(0).get("text");
-        } catch (Exception e) {
-            log.warn("Unexpected Gemini response shape during classification: {}", response);
-            return "";
-        }
-    }
-
-    // Gemini is asked to reply with only a category name, but models can
-    // still add stray punctuation/casing, so we normalize and validate
-    // against the closed list rather than trusting the raw text outright.
-    private ClassifyResponse matchToAllowedCategory(String rawAnswer) {
-        if (rawAnswer == null) {
-            return new ClassifyResponse(InvoiceCategories.FALLBACK_CATEGORY, true);
-        }
-
-        String cleaned = rawAnswer.replaceAll("[\"'.]", "").trim();
-
-        for (String allowed : InvoiceCategories.ALLOWED_CATEGORIES) {
-            if (allowed.equalsIgnoreCase(cleaned)) {
-                return new ClassifyResponse(allowed, false);
-            }
-        }
-
-        // loose contains-match fallback, in case the model wraps the
-        // category in a short sentence despite instructions
-        for (String allowed : InvoiceCategories.ALLOWED_CATEGORIES) {
-            if (cleaned.toLowerCase().contains(allowed.toLowerCase())) {
-                return new ClassifyResponse(allowed, true);
-            }
-        }
-
-        return new ClassifyResponse(InvoiceCategories.FALLBACK_CATEGORY, true);
+        return new ClassifyResponse(InvoiceCategories.DEFAULT_CATEGORY, 0.50, reasonPrefix + " (Defaulted to Other)", true);
     }
 }
+

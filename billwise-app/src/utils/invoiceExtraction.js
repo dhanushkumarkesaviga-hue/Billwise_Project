@@ -462,6 +462,79 @@ export function extractVendorName(text, defaultFileName = '') {
 }
 
 /**
+ * Extracts Buyer / Customer details (Name and GSTIN) for Sales Invoices.
+ */
+export function extractCustomerDetails(text) {
+  if (!text) return { customerName: '', customerGstin: '' };
+
+  const cleaned = cleanOcrText(text);
+  const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+
+  let customerName = '';
+  let customerGstin = '';
+
+  const BUYER_LABEL_REGEX = /^(?:billed\s+to|bill\s+to|buyer\s*(?:\(bill\s+to\))?|details\s+of\s+receiver|receiver|customer|consignee|ship\s+to|client|party\s+name|buyer['’]s?\s+name|m\/s\.?)[:\s\-│|]*/i;
+  const GSTIN_PATTERN = /([0-9OI]{2}[\s\-]*[A-Z0-9]{5}[\s\-]*[0-9OI]{4}[\s\-]*[A-Z0-9]{1}[\s\-]*[1-9A-Z]{1}[\s\-]*[Z2]{1}[\s\-]*[0-9A-Z]{1})/gi;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (BUYER_LABEL_REGEX.test(line) || /billed\s+to|buyer|consignee|receiver|customer/i.test(line)) {
+      const inlineRemainder = line.replace(BUYER_LABEL_REGEX, '').replace(/^[|│:\-\s]+|[|│:\-\s]+$/g, '').trim();
+      if (inlineRemainder && inlineRemainder.length > 3 && !/gstin|state|address|invoice/i.test(inlineRemainder)) {
+        customerName = inlineRemainder.toUpperCase();
+      } else {
+        for (let j = i + 1; j <= Math.min(i + 3, lines.length - 1); j++) {
+          const nextLine = lines[j].replace(/^[|│:\-\s]+|[|│:\-\s]+$/g, '').trim();
+          if (
+            nextLine.length > 3 &&
+            !/gstin|pan|state|address|invoice|phone|mobile|email|gst\s*no|date|place\s*of/i.test(nextLine) &&
+            !/^\d+$/.test(nextLine)
+          ) {
+            customerName = nextLine.toUpperCase();
+            break;
+          }
+        }
+      }
+
+      for (let j = i; j <= Math.min(i + 6, lines.length - 1); j++) {
+        const checkLine = lines[j];
+        let gMatch;
+        while ((gMatch = GSTIN_PATTERN.exec(checkLine)) !== null) {
+          const normalized = normalizeGstinCandidate(gMatch[1]);
+          if (normalized.length === 15) {
+            customerGstin = normalized;
+            break;
+          }
+        }
+        if (customerGstin) break;
+      }
+
+      if (customerName || customerGstin) break;
+    }
+  }
+
+  // Fallback: If customerGstin was not detected in labeled block, look for secondary GSTIN
+  if (!customerGstin) {
+    const allGstins = [];
+    lines.forEach((l) => {
+      let m;
+      while ((m = GSTIN_PATTERN.exec(l)) !== null) {
+        const norm = normalizeGstinCandidate(m[1]);
+        if (norm.length === 15 && !allGstins.includes(norm)) {
+          allGstins.push(norm);
+        }
+      }
+    });
+    if (allGstins.length > 1) {
+      customerGstin = allGstins[1];
+    }
+  }
+
+  return { customerName, customerGstin };
+}
+
+/**
  * Extracts HSN/SAC code from line items or summary headers.
  */
 export function extractHsnSac(text) {
@@ -528,10 +601,13 @@ export function extractInvoiceDate(text) {
   return new Date().toISOString().split('T')[0];
 }
 
-function normalizeDateString(raw) {
+export function normalizeDateString(raw) {
   if (!raw) return null;
   try {
-    const clean = raw.trim().replace(/,/g, '');
+    let clean = String(raw).trim().replace(/,/g, '');
+    if (clean.includes('T')) {
+      clean = clean.split('T')[0].trim();
+    }
 
     // Case 1: Text-month format like "18-Apr-2019", "18/Apr/2019", "18 Apr 2019"
     const textMonthMatch = clean.match(/^(\d{1,2})[\s\/\.-]+([A-Za-z]{3,9})[\s\/\.-]+(\d{2,4})$/);
@@ -872,6 +948,7 @@ export function extractInvoiceFields(ocrText, defaultFileName = '') {
   const cleaned = cleanOcrText(ocrText);
   const vendorGstinObj = extractVendorGstin(cleaned);
   const vendorName = extractVendorName(cleaned, defaultFileName);
+  const customerDetails = extractCustomerDetails(cleaned);
   const invoiceNumber = extractInvoiceNumber(cleaned);
   const hsnSac = extractHsnSac(cleaned);
   const invoiceDate = extractInvoiceDate(cleaned);
@@ -881,6 +958,8 @@ export function extractInvoiceFields(ocrText, defaultFileName = '') {
     vendorName,
     gstin: vendorGstinObj.gstin,
     gstinValidation: vendorGstinObj,
+    customerName: customerDetails.customerName,
+    customerGstin: customerDetails.customerGstin,
     invoiceNumber,
     hsnSac,
     invoiceDate,
@@ -973,6 +1052,8 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
   if (!hasRegex && !hasVlm) {
     return {
       vendorName: '',
+      customerName: '',
+      customerGstin: '',
       gstin: '',
       gstinValidation: { valid: false, gstin: '' },
       invoiceNumber: '',
@@ -1005,13 +1086,16 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
     const sources = {};
     const candidates = {};
 
-    ['vendorName', 'gstin', 'invoiceNumber', 'invoiceDate', 'hsnSac', 'taxableAmount', 'gstRate', 'cgst', 'sgst', 'igst', 'totalAmount'].forEach(f => {
+    ['vendorName', 'customerName', 'customerGstin', 'gstin', 'invoiceNumber', 'invoiceDate', 'hsnSac', 'taxableAmount', 'gstRate', 'cgst', 'sgst', 'igst', 'totalAmount'].forEach(f => {
       sources[f] = regexResult[f] ? 'regex' : 'none';
       candidates[f] = { regexVal: regexResult[f] ?? null, vlmVal: null, selected: regexResult[f] ?? null, conflict: false };
     });
 
     return {
       ...regexResult,
+      invoiceDate: normalizeDateString(regexResult.invoiceDate) || new Date().toISOString().split('T')[0],
+      customerName: regexResult.customerName || '',
+      customerGstin: regexResult.customerGstin || '',
       documentType: regexResult.documentType || 'tax_invoice',
       extractionConfidence: 0.90,
       lineItems: [],
@@ -1040,19 +1124,22 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
     const sources = {};
     const candidates = {};
 
-    ['vendorName', 'gstin', 'invoiceNumber', 'invoiceDate', 'hsnSac', 'taxableAmount', 'gstRate', 'cgst', 'sgst', 'igst', 'totalAmount'].forEach(f => {
+    ['vendorName', 'customerName', 'customerGstin', 'gstin', 'invoiceNumber', 'invoiceDate', 'hsnSac', 'taxableAmount', 'gstRate', 'cgst', 'sgst', 'igst', 'totalAmount'].forEach(f => {
       sources[f] = vlmResult[f] ? 'vlm' : 'none';
       candidates[f] = { regexVal: null, vlmVal: vlmResult[f] ?? null, selected: vlmResult[f] ?? null, conflict: false };
     });
 
     const gstinVal = vlmResult.gstin ? validateGstin(vlmResult.gstin) : { valid: false, gstin: '' };
+    const normalizedVlmDate = normalizeDateString(vlmResult.invoiceDate) || new Date().toISOString().split('T')[0];
 
     return {
       vendorName: vlmResult.vendorName || '',
+      customerName: vlmResult.customerName || vlmResult.buyerName || '',
+      customerGstin: vlmResult.customerGstin || vlmResult.buyerGstin || '',
       gstin: vlmResult.gstin || '',
       gstinValidation: gstinVal,
       invoiceNumber: vlmResult.invoiceNumber || '',
-      invoiceDate: vlmResult.invoiceDate || new Date().toISOString().split('T')[0],
+      invoiceDate: normalizedVlmDate,
       hsnSac: vlmResult.hsnSac || '',
       documentType: docType,
       extractionConfidence: vlmConfidence,
@@ -1195,10 +1282,55 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
     candidates.invoiceNumber = { regexVal: null, vlmVal: null, selected: '', conflict: false };
   }
 
+  // 1b. Customer Name & GSTIN (for Sales Invoices)
+  let finalCustomerName = '';
+  const regexCustomer = (regexResult.customerName || '').trim();
+  const vlmCustomer = (vlmResult.customerName || vlmResult.buyerName || '').trim();
+
+  if (regexCustomer && vlmCustomer) {
+    finalCustomerName = regexCustomer.length >= vlmCustomer.length ? regexCustomer : vlmCustomer;
+    extractionSources.customerName = stringsAgree(regexCustomer, vlmCustomer) ? 'both' : 'conflict';
+    candidates.customerName = { regexVal: regexCustomer, vlmVal: vlmCustomer, selected: finalCustomerName, conflict: !stringsAgree(regexCustomer, vlmCustomer) };
+  } else if (regexCustomer) {
+    finalCustomerName = regexCustomer;
+    extractionSources.customerName = 'regex';
+    candidates.customerName = { regexVal: regexCustomer, vlmVal: null, selected: finalCustomerName, conflict: false };
+  } else if (vlmCustomer) {
+    finalCustomerName = vlmCustomer;
+    extractionSources.customerName = 'vlm';
+    candidates.customerName = { regexVal: null, vlmVal: vlmCustomer, selected: finalCustomerName, conflict: false };
+  } else {
+    finalCustomerName = '';
+    extractionSources.customerName = 'none';
+    candidates.customerName = { regexVal: null, vlmVal: null, selected: '', conflict: false };
+  }
+
+  let finalCustomerGstin = '';
+  const regexCustGstin = (regexResult.customerGstin || '').toUpperCase().trim();
+  const vlmCustGstin = (vlmResult.customerGstin || vlmResult.buyerGstin || '').toUpperCase().trim();
+
+  if (regexCustGstin && vlmCustGstin) {
+    finalCustomerGstin = regexCustGstin === vlmCustGstin ? regexCustGstin : (validateGstin(regexCustGstin).isValid ? regexCustGstin : vlmCustGstin);
+    extractionSources.customerGstin = regexCustGstin === vlmCustGstin ? 'both' : 'conflict';
+    candidates.customerGstin = { regexVal: regexCustGstin, vlmVal: vlmCustGstin, selected: finalCustomerGstin, conflict: regexCustGstin !== vlmCustGstin };
+  } else if (regexCustGstin) {
+    finalCustomerGstin = regexCustGstin;
+    extractionSources.customerGstin = 'regex';
+    candidates.customerGstin = { regexVal: regexCustGstin, vlmVal: null, selected: finalCustomerGstin, conflict: false };
+  } else if (vlmCustGstin) {
+    finalCustomerGstin = vlmCustGstin;
+    extractionSources.customerGstin = 'vlm';
+    candidates.customerGstin = { regexVal: null, vlmVal: vlmCustGstin, selected: finalCustomerGstin, conflict: false };
+  } else {
+    finalCustomerGstin = '';
+    extractionSources.customerGstin = 'none';
+    candidates.customerGstin = { regexVal: null, vlmVal: null, selected: '', conflict: false };
+  }
+
   // 4. Invoice Date
   let finalInvoiceDate = '';
-  const regexDate = (regexResult.invoiceDate || '').trim();
-  const vlmDate = (vlmResult.invoiceDate || '').trim();
+  const regexDate = normalizeDateString((regexResult.invoiceDate || '').trim());
+  const vlmDate = normalizeDateString((vlmResult.invoiceDate || '').trim());
 
   if (regexDate && vlmDate) {
     if (regexDate === vlmDate) {
@@ -1343,6 +1475,8 @@ export function reconcileExtractionResults(regexResult, vlmResult) {
 
   return {
     vendorName: finalVendorName,
+    customerName: finalCustomerName,
+    customerGstin: finalCustomerGstin,
     gstin: finalGstin,
     gstinValidation: finalGstinValidation,
     invoiceNumber: finalInvoiceNumber,
