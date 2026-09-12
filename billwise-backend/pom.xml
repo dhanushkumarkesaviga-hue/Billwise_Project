@@ -29,6 +29,7 @@
         <module>api-gateway</module>
         <module>auth-service</module>
         <module>invoice-service</module>
+        <module>gst-engine</module>
     </modules>
 
     <dependencyManagement>

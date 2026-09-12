@@ -59,6 +59,9 @@ public class GoogleTokenVerifierService {
      * @throws UnauthorizedException if token is missing, forged, expired, or unverified
      */
     public GoogleIdToken.Payload verifyToken(String idTokenString) {
+        if (idTokenString == null || idTokenString.trim().isEmpty()) {
+            throw new BadRequestException("Google ID token is required");
+        }
         String trimmed = idTokenString.trim();
 
         // Support direct JSON dev payloads for local testing and CI
